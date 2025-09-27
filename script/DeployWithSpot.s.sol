@@ -2,56 +2,51 @@
 pragma solidity ^0.8.19;
 
 import "forge-std/Script.sol";
-import "../src/utils/Interfaces.sol";
-import "../src/mocks/PriceOracleMock.sol";
 import "../src/vulnerableSealedBidAuctionWithSpot.sol";
 import "../src/HardenedSealedBidAuctionWithSpot.sol";
 
-contract DeployWithSpot is Script {
+contract DeployAuctionsWithSpot is Script {
+
     function run() external {
-        // Load deployer private key from env
-        uint256 deployerKey = vm.envUint("PRIVATE_KEY");
-        address deployer = vm.addr(deployerKey);
+        uint256 deployerPrivateKey = vm.envUint("PRIVATE_KEY");
+        address deployer = vm.addr(deployerPrivateKey);
+	address beneficiary = vm.envAddress("BENEFICIARY");
+        address paymentToken = vm.envAddress("PAYMENT_TOKEN");
+        address priceOracle = vm.envAddress("PRICE_ORACLE");
 
-        vm.startBroadcast(deployerKey);
+        // Hardcoded params (adjust buffer if needed)
+        uint256 depositAmount = 1e18; // 1 token (assuming 18 decimals)
+        uint256 commitEndBlock = block.number + 20;
+        uint256 revealEndBlock = block.number + 40;
 
-        // --- Deploy mock oracle ---
-        PriceOracleMock oracle = new PriceOracleMock();
+        vm.startBroadcast(deployerPrivateKey);
 
-        // --- Common config ---
-        address beneficiary = deployer; // you can change beneficiary if needed
-        address paymentToken = address(0); // using ETH; swap to MockERC20 address if ERC20
-        uint256 commitEndBlock = block.number + 10;
-        uint256 revealEndBlock = commitEndBlock + 10;
-        uint256 depositAmount = 1 ether;
+        VulnerableSealedBidAuctionWithSpot vulnAuction =
+            new VulnerableSealedBidAuctionWithSpot(
+		deployer,
+                beneficiary,
+                paymentToken,
+                commitEndBlock,
+                revealEndBlock,
+		depositAmount,
+                priceOracle
+            );
 
-        // --- Deploy vulnerable ---
-        VulnerableSealedBidAuctionWithSpot vuln = new VulnerableSealedBidAuctionWithSpot(
-            deployer,
-            beneficiary,
-            paymentToken,
-            commitEndBlock,
-            revealEndBlock,
-            depositAmount,
-            address(oracle) // oracle address
-        );
+        HardenedSealedBidAuctionWithSpot hardenedAuction =
+            new HardenedSealedBidAuctionWithSpot(
+		deployer,
+                beneficiary,
+                paymentToken,
+                commitEndBlock,
+                revealEndBlock,
+		depositAmount,
+                priceOracle
+            );
 
-        // --- Deploy hardened ---
-        HardenedSealedBidAuctionWithSpot hard = new HardenedSealedBidAuctionWithSpot(
-            deployer,
-            beneficiary,
-            paymentToken,
-            commitEndBlock,
-            revealEndBlock,
-            depositAmount,
-            address(oracle) // oracle address
-        );
+        console.log("Vulnerable Auction deployed at:", address(vulnAuction));
+        console.log("Hardened Auction deployed at:", address(hardenedAuction));
 
         vm.stopBroadcast();
-
-        console2.log("Deployer:", deployer);
-        console2.log("PriceOracleMock:", address(oracle));
-        console2.log("Vulnerable Auction:", address(vuln));
-        console2.log("Hardened Auction:", address(hard));
     }
 }
+
