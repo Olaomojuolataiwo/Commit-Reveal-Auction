@@ -1,0 +1,114 @@
+No files changed, compilation skipped
+Traces:
+  [274408] ScenarioActions::commitBoth()
+    ├─ [0] VM::envString("AUCTION_ADDR") [staticcall]
+    │   └─ ← [Return] <env var value>
+    ├─ [0] VM::envAddress("AUCTION_ADDR") [staticcall]
+    │   └─ ← [Return] <env var value>
+    ├─ [0] VM::envString("MOCK_TOKEN_ADDR") [staticcall]
+    │   └─ ← [Return] <env var value>
+    ├─ [0] VM::envAddress("MOCK_TOKEN_ADDR") [staticcall]
+    │   └─ ← [Return] <env var value>
+    ├─ [0] VM::envUint("ALICE_PK") [staticcall]
+    │   └─ ← [Return] <env var value>
+    ├─ [0] VM::envUint("ATTACKER_PK") [staticcall]
+    │   └─ ← [Return] <env var value>
+    ├─ [0] VM::envUint("ALICE_BID") [staticcall]
+    │   └─ ← [Return] <env var value>
+    ├─ [0] VM::envUint("ATTACKER_BID") [staticcall]
+    │   └─ ← [Return] <env var value>
+    ├─ [0] VM::envUint("ALICE_NONCE") [staticcall]
+    │   └─ ← [Return] <env var value>
+    ├─ [0] VM::envUint("ATTACKER_NONCE") [staticcall]
+    │   └─ ← [Return] <env var value>
+    ├─ [0] VM::startBroadcast(<pk>)
+    │   └─ ← [Return]
+    ├─ [25296] 0x7554E3D8544CC2eb8Becaa7b6dEc64802Ff2d34C::approve(0xcE720C84F08ba3b13d016999Ef0363758bFa5359, 115792089237316195423570985008687907853269984665640564039457584007913129639935 [1.157e77])
+    │   ├─ emit Approval(owner: 0xcc7a3706Df7FCcFbF99f577382BC62C0e565FcF0, spender: 0xcE720C84F08ba3b13d016999Ef0363758bFa5359, value: 115792089237316195423570985008687907853269984665640564039457584007913129639935 [1.157e77])
+    │   └─ ← [Return] true
+    ├─ [0] VM::addr(<pk>) [staticcall]
+    │   └─ ← [Return] 0xcc7a3706Df7FCcFbF99f577382BC62C0e565FcF0
+    ├─ [122320] 0xcE720C84F08ba3b13d016999Ef0363758bFa5359::commit(0x5b1cacedc5c945020d4e23d42c683896b2537d4d52601c92cc4d2e982dc7c022)
+    │   ├─ [31161] 0x7554E3D8544CC2eb8Becaa7b6dEc64802Ff2d34C::transferFrom(0xcc7a3706Df7FCcFbF99f577382BC62C0e565FcF0, 0xcE720C84F08ba3b13d016999Ef0363758bFa5359, 10)
+    │   │   ├─ emit Transfer(from: 0xcc7a3706Df7FCcFbF99f577382BC62C0e565FcF0, to: 0xcE720C84F08ba3b13d016999Ef0363758bFa5359, value: 10)
+    │   │   └─ ← [Return] true
+    │   ├─ emit BidCommitted(bidder: 0xcc7a3706Df7FCcFbF99f577382BC62C0e565FcF0)
+    │   └─ ← [Stop]
+    ├─ [0] console::log(0x5b1cacedc5c945020d4e23d42c683896b2537d4d52601c92cc4d2e982dc7c022) [staticcall]
+    │   └─ ← [Stop]
+    ├─ [0] VM::stopBroadcast()
+    │   └─ ← [Return]
+    ├─ [0] VM::startBroadcast(<pk>)
+    │   └─ ← [Return]
+    ├─ [25296] 0x7554E3D8544CC2eb8Becaa7b6dEc64802Ff2d34C::approve(0xcE720C84F08ba3b13d016999Ef0363758bFa5359, 115792089237316195423570985008687907853269984665640564039457584007913129639935 [1.157e77])
+    │   ├─ emit Approval(owner: 0x099BA97a37FA019c064a2517026e3c2Ea8DB9964, spender: 0xcE720C84F08ba3b13d016999Ef0363758bFa5359, value: 115792089237316195423570985008687907853269984665640564039457584007913129639935 [1.157e77])
+    │   └─ ← [Return] true
+    ├─ [0] VM::addr(<pk>) [staticcall]
+    │   └─ ← [Return] 0x099BA97a37FA019c064a2517026e3c2Ea8DB9964
+    ├─ [78520] 0xcE720C84F08ba3b13d016999Ef0363758bFa5359::commit(0x946428020847835b8659890e985564fde28934872692539ecbe44f7ecf4d86bc)
+    │   ├─ [9261] 0x7554E3D8544CC2eb8Becaa7b6dEc64802Ff2d34C::transferFrom(0x099BA97a37FA019c064a2517026e3c2Ea8DB9964, 0xcE720C84F08ba3b13d016999Ef0363758bFa5359, 10)
+    │   │   ├─ emit Transfer(from: 0x099BA97a37FA019c064a2517026e3c2Ea8DB9964, to: 0xcE720C84F08ba3b13d016999Ef0363758bFa5359, value: 10)
+    │   │   └─ ← [Return] true
+    │   ├─ emit BidCommitted(bidder: 0x099BA97a37FA019c064a2517026e3c2Ea8DB9964)
+    │   └─ ← [Stop]
+    ├─ [0] console::log(0x946428020847835b8659890e985564fde28934872692539ecbe44f7ecf4d86bc) [staticcall]
+    │   └─ ← [Stop]
+    ├─ [0] VM::stopBroadcast()
+    │   └─ ← [Return]
+    └─ ← [Stop]
+
+
+Script ran successfully.
+
+== Logs ==
+  0x5b1cacedc5c945020d4e23d42c683896b2537d4d52601c92cc4d2e982dc7c022
+  0x946428020847835b8659890e985564fde28934872692539ecbe44f7ecf4d86bc
+
+## Setting up 1 EVM.
+==========================
+Simulated On-chain Traces:
+
+  [25296] 0x7554E3D8544CC2eb8Becaa7b6dEc64802Ff2d34C::approve(0xcE720C84F08ba3b13d016999Ef0363758bFa5359, 115792089237316195423570985008687907853269984665640564039457584007913129639935 [1.157e77])
+    ├─ emit Approval(owner: 0xcc7a3706Df7FCcFbF99f577382BC62C0e565FcF0, spender: 0xcE720C84F08ba3b13d016999Ef0363758bFa5359, value: 115792089237316195423570985008687907853269984665640564039457584007913129639935 [1.157e77])
+    └─ ← [Return] true
+
+  [126820] 0xcE720C84F08ba3b13d016999Ef0363758bFa5359::commit(0x5b1cacedc5c945020d4e23d42c683896b2537d4d52601c92cc4d2e982dc7c022)
+    ├─ [33161] 0x7554E3D8544CC2eb8Becaa7b6dEc64802Ff2d34C::transferFrom(0xcc7a3706Df7FCcFbF99f577382BC62C0e565FcF0, 0xcE720C84F08ba3b13d016999Ef0363758bFa5359, 10)
+    │   ├─ emit Transfer(from: 0xcc7a3706Df7FCcFbF99f577382BC62C0e565FcF0, to: 0xcE720C84F08ba3b13d016999Ef0363758bFa5359, value: 10)
+    │   └─ ← [Return] true
+    ├─ emit BidCommitted(bidder: 0xcc7a3706Df7FCcFbF99f577382BC62C0e565FcF0)
+    └─ ← [Stop]
+
+  [25296] 0x7554E3D8544CC2eb8Becaa7b6dEc64802Ff2d34C::approve(0xcE720C84F08ba3b13d016999Ef0363758bFa5359, 115792089237316195423570985008687907853269984665640564039457584007913129639935 [1.157e77])
+    ├─ emit Approval(owner: 0x099BA97a37FA019c064a2517026e3c2Ea8DB9964, spender: 0xcE720C84F08ba3b13d016999Ef0363758bFa5359, value: 115792089237316195423570985008687907853269984665640564039457584007913129639935 [1.157e77])
+    └─ ← [Return] true
+
+  [92620] 0xcE720C84F08ba3b13d016999Ef0363758bFa5359::commit(0x946428020847835b8659890e985564fde28934872692539ecbe44f7ecf4d86bc)
+    ├─ [16061] 0x7554E3D8544CC2eb8Becaa7b6dEc64802Ff2d34C::transferFrom(0x099BA97a37FA019c064a2517026e3c2Ea8DB9964, 0xcE720C84F08ba3b13d016999Ef0363758bFa5359, 10)
+    │   ├─ emit Transfer(from: 0x099BA97a37FA019c064a2517026e3c2Ea8DB9964, to: 0xcE720C84F08ba3b13d016999Ef0363758bFa5359, value: 10)
+    │   └─ ← [Return] true
+    ├─ emit BidCommitted(bidder: 0x099BA97a37FA019c064a2517026e3c2Ea8DB9964)
+    └─ ← [Stop]
+
+
+==========================
+
+Chain 11155111
+
+Estimated gas price: 0.001000048 gwei
+
+Estimated total gas used for script: 493201
+
+Estimated amount required: 0.000000493224673648 ETH
+
+==========================
+
+
+==========================
+
+ONCHAIN EXECUTION COMPLETE & SUCCESSFUL.
+
+Transactions saved to: C:/Users/Olaomoju Ola-Taiwo/CommitRevealAuction/broadcast\frontrunning_Onchain.s.sol\11155111\commitBoth-latest.json
+
+Sensitive values saved to: C:/Users/Olaomoju Ola-Taiwo/CommitRevealAuction/cache\frontrunning_Onchain.s.sol\11155111\commitBoth-latest.json
+

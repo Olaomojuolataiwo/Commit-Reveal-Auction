@@ -1,0 +1,30 @@
+No files changed, compilation skipped
+Traces:
+  [4572642] → new ScenarioActions@0x5b73C5498c1E3b4dbA84de0F1833c4a029d90519
+    └─ ← [Return] 22726 bytes of code
+
+  [11248] ScenarioActions::revealBoth()
+    ├─ [0] VM::envString("AUCTION_ADDR") [staticcall]
+    │   └─ ← [Return] <env var value>
+    ├─ [0] VM::envAddress("AUCTION_ADDR") [staticcall]
+    │   └─ ← [Return] <env var value>
+    ├─ [0] VM::envUint("ALICE_PK") [staticcall]
+    │   └─ ← [Return] <env var value>
+    ├─ [0] VM::envUint("ATTACKER_PK") [staticcall]
+    │   └─ ← [Return] <env var value>
+    ├─ [0] VM::envUint("ALICE_BID") [staticcall]
+    │   └─ ← [Return] <env var value>
+    ├─ [0] VM::envUint("ATTACKER_BID") [staticcall]
+    │   └─ ← [Return] <env var value>
+    ├─ [0] VM::envUint("ALICE_NONCE") [staticcall]
+    │   └─ ← [Return] <env var value>
+    ├─ [0] VM::envUint("ATTACKER_NONCE") [staticcall]
+    │   └─ ← [Return] <env var value>
+    ├─ [0] VM::startBroadcast(<pk>)
+    │   └─ ← [Return]
+    ├─ [388] 0xe6256915B9780714c9a8462158F072a346c7f4C1::reveal(100000000000000000000 [1e20], 0x000000000000000000000000000000000000000000000000000000000000007b)
+    │   └─ ← [Revert] not reveal phase
+    └─ ← [Revert] not reveal phase
+
+
+Error: script failed: not reveal phase
