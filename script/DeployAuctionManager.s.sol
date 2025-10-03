@@ -7,7 +7,7 @@ import "../src/AuctionManager.sol";
 contract DeployAuctionManager is Script {
     function run() external {
         // Start broadcasting with your private key (passed via CLI)
-	string memory rpc = vm.envString("RPC_URL_SEPOLIA");
+        string memory rpc = vm.envString("RPC_URL_SEPOLIA");
         vm.startBroadcast(vm.envUint("PRIVATE_KEY"));
 
         // Deploy the AuctionManager contract

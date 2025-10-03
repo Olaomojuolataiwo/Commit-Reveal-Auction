@@ -16,12 +16,7 @@ contract AuctionManagerWithSpot {
     mapping(uint256 => AuctionInfo) public auctions;
     uint256 public auctionCount;
 
-    event AuctionCreated(
-        uint256 indexed id,
-        address auction,
-        string auctionType,
-        address priceSource
-    );
+    event AuctionCreated(uint256 indexed id, address auction, string auctionType, address priceSource);
 
     // ----------------------------
     // Create auctions
@@ -35,13 +30,7 @@ contract AuctionManagerWithSpot {
         address priceSource
     ) external returns (uint256 auctionId) {
         VulnerableSealedBidAuctionWithSpot auction = new VulnerableSealedBidAuctionWithSpot(
-            msg.sender,
-            beneficiary,
-            paymentToken,
-            commitEndBlock,
-            revealEndBlock,
-            depositAmount,
-            priceSource
+            msg.sender, beneficiary, paymentToken, commitEndBlock, revealEndBlock, depositAmount, priceSource
         );
         auctionId = ++auctionCount;
         auctions[auctionId] = AuctionInfo(address(auction), "vulnerable", priceSource);
@@ -57,13 +46,7 @@ contract AuctionManagerWithSpot {
         address priceSource
     ) external returns (uint256 auctionId) {
         HardenedSealedBidAuctionWithSpot auction = new HardenedSealedBidAuctionWithSpot(
-            msg.sender,
-            beneficiary,
-            paymentToken,
-            commitEndBlock,
-            revealEndBlock,
-            depositAmount,
-            priceSource
+            msg.sender, beneficiary, paymentToken, commitEndBlock, revealEndBlock, depositAmount, priceSource
         );
         auctionId = ++auctionCount;
         auctions[auctionId] = AuctionInfo(address(auction), "hardened", priceSource);
@@ -74,30 +57,25 @@ contract AuctionManagerWithSpot {
     // Proxy helpers
     // ----------------------------
     function commit(uint256 auctionId, bytes32 commitment) external payable {
-        (bool ok, ) = auctions[auctionId].auction.call{value: msg.value}(
-            abi.encodeWithSignature("commit(bytes32)", commitment)
-        );
+        (bool ok,) =
+            auctions[auctionId].auction.call{value: msg.value}(abi.encodeWithSignature("commit(bytes32)", commitment));
         require(ok, "commit failed");
     }
 
     function reveal(uint256 auctionId, uint256 amount, bytes32 nonce) external payable {
-        (bool ok, ) = auctions[auctionId].auction.call{value: msg.value}(
+        (bool ok,) = auctions[auctionId].auction.call{value: msg.value}(
             abi.encodeWithSignature("reveal(uint256,bytes32)", amount, nonce)
         );
         require(ok, "reveal failed");
     }
 
     function finalize(uint256 auctionId) external {
-        (bool ok, ) = auctions[auctionId].auction.call(
-            abi.encodeWithSignature("finalize()")
-        );
+        (bool ok,) = auctions[auctionId].auction.call(abi.encodeWithSignature("finalize()"));
         require(ok, "finalize failed");
     }
 
     function withdraw(uint256 auctionId) external {
-        (bool ok, ) = auctions[auctionId].auction.call(
-            abi.encodeWithSignature("withdraw()")
-        );
+        (bool ok,) = auctions[auctionId].auction.call(abi.encodeWithSignature("withdraw()"));
         require(ok, "withdraw failed");
     }
 

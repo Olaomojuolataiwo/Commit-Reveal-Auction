@@ -18,7 +18,7 @@ contract VulnerableSealedBidAuctionWithSpot is ReentrancyGuard {
     // --- Auction state ---
     mapping(address => bytes32) public commitments;
     mapping(address => bool) public revealed;
-    mapping(address => uint256) public revealedBid;           // nominal amount revealed
+    mapping(address => uint256) public revealedBid; // nominal amount revealed
     mapping(address => uint256) public revealedEffectiveBid; // amount * price / 1e18
     mapping(address => uint256) public priceObservedAtReveal; // price observed during reveal
     mapping(address => uint256) public deposits;
@@ -44,10 +44,12 @@ contract VulnerableSealedBidAuctionWithSpot is ReentrancyGuard {
         require(block.number <= commitEndBlock, "not commit phase");
         _;
     }
+
     modifier onlyDuringReveal() {
         require(block.number > commitEndBlock && block.number <= revealEndBlock, "not reveal phase");
         _;
     }
+
     modifier onlyAfterRevealWindow() {
         require(block.number > revealEndBlock, "reveal window open");
         _;
@@ -177,7 +179,7 @@ contract VulnerableSealedBidAuctionWithSpot is ReentrancyGuard {
                 uint256 amt = deposits[b];
                 deposits[b] = 0;
                 if (paymentToken == address(0)) {
-                    (bool sent, ) = beneficiary.call{value: amt}("");
+                    (bool sent,) = beneficiary.call{value: amt}("");
                     require(sent, "slash transfer failed");
                 } else {
                     bool ok = IERC20Minimal(paymentToken).transfer(beneficiary, amt);
@@ -192,7 +194,7 @@ contract VulnerableSealedBidAuctionWithSpot is ReentrancyGuard {
             uint256 pay = revealedBid[winner];
             revealedBid[winner] = 0; // zero out to prevent double-withdraw
             if (paymentToken == address(0)) {
-                (bool sent, ) = beneficiary.call{value: pay}("");
+                (bool sent,) = beneficiary.call{value: pay}("");
                 require(sent, "payout failed");
             } else {
                 bool ok = IERC20Minimal(paymentToken).transfer(beneficiary, pay);
@@ -221,7 +223,7 @@ contract VulnerableSealedBidAuctionWithSpot is ReentrancyGuard {
         uint256 totalRefund = refundBid + refundDep;
 
         if (paymentToken == address(0)) {
-            (bool sent, ) = msg.sender.call{value: totalRefund}("");
+            (bool sent,) = msg.sender.call{value: totalRefund}("");
             require(sent, "withdraw ETH failed");
         } else {
             bool ok = IERC20Minimal(paymentToken).transfer(msg.sender, totalRefund);
@@ -237,9 +239,11 @@ contract VulnerableSealedBidAuctionWithSpot is ReentrancyGuard {
     function getBidders() external view returns (address[] memory) {
         return bidders;
     }
+
     function getPriceAtReveal(address bidder) external view returns (uint256) {
         return priceObservedAtReveal[bidder];
     }
+
     function getRevealedEffectiveBid(address bidder) external view returns (uint256) {
         return revealedEffectiveBid[bidder];
     }

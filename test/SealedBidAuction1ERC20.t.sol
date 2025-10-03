@@ -11,7 +11,7 @@ contract SealedBidAuctionERC20Test is Test {
     AuctionManager manager;
 
     address alice = address(uint160(uint256(keccak256("alice"))));
-    address bob   = address(uint160(uint256(keccak256("bob"))));
+    address bob = address(uint160(uint256(keccak256("bob"))));
     address beneficiary = address(0xBEEF);
 
     function setUp() public {
@@ -35,13 +35,7 @@ contract SealedBidAuctionERC20Test is Test {
         uint256 deposit = 10 ether; // deposit in token units
 
         // create auction via manager (returns auction address)
-        address auctionAddr = manager.createAuction(
-            beneficiary,
-            address(token),
-            commitEnd,
-            revealEnd,
-            deposit
-        );
+        address auctionAddr = manager.createAuction(beneficiary, address(token), commitEnd, revealEnd, deposit);
         SealedBidAuction auction = SealedBidAuction(payable(auctionAddr));
 
         // bidders approve auction to spend deposit + max bid
@@ -58,10 +52,10 @@ contract SealedBidAuctionERC20Test is Test {
 
         // compute commitments (client-side would keep nonces secret)
         bytes32 aliceNonce = keccak256(abi.encodePacked("alice-secret"));
-        bytes32 bobNonce   = keccak256(abi.encodePacked("bob-secret"));
+        bytes32 bobNonce = keccak256(abi.encodePacked("bob-secret"));
 
         bytes32 commitAlice = keccak256(abi.encodePacked(uint256(aliceBid), alice, aliceNonce));
-        bytes32 commitBob   = keccak256(abi.encodePacked(uint256(bobBid), bob, bobNonce));
+        bytes32 commitBob = keccak256(abi.encodePacked(uint256(bobBid), bob, bobNonce));
 
         // commit phase: both commit (this will call transferFrom to collect deposit)
         vm.prank(alice);

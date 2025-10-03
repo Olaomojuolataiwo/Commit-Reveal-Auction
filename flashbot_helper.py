@@ -11,22 +11,19 @@ class FlashbotHelper:
         # Attach flashbots middleware
         flashbot(self.w3, self.searcher, endpoint_uri=relay_url)
 
-    def send_bundle(self, frontrun_tx: bytes, victim_tx: bytes, backrun_tx: bytes):
-        block = self.w3.eth.block_number + 1
+    def send_bundle(self, *signed_tx_hexes, target_block_offset: int = 1):
+        """
+        Accepts raw signed tx hex strings (varargs) and sends a flashbots bundle
+        targeting current_block + target_block_offset. Returns the send_bundle result object
+        (so caller can call .wait() or check inclusion).
+        """
+        block = self.w3.eth.block_number + target_block_offset
 
-        bundle = [
-            {"signed_transaction": frontrun_tx},
-            {"signed_transaction": victim_tx},
-            {"signed_transaction": backrun_tx},
-        ]
+        bundle = [{"signed_transaction": tx} for tx in signed_tx_hexes]
 
-        result = self.w3.flashbots.send_bundle(
-            bundle, target_block_number=block
-        )
-        print(f"📤 Bundle sent to Flashbots for block {block}")
+        result = self.w3.flashbots.send_bundle(bundle, target_block_number=block)
+        print(f"  📤 Bundle sent to Flashbots for block {block}")
 
-        receipt = result.wait()
-        if receipt:
-            print(f"Bundle included in block {receipt.blockNumber}")
-        else:
-            print("Bundle not included")
+        # don't wait here for too long — caller will decide how to wait/handle
+        # but return the result object for the orchestrator to inspect/wait on.
+        return result

@@ -7,7 +7,7 @@ import "../src/MockERC20.sol";
 contract MockERC20Test is Test {
     MockERC20 token;
     address alice = address(0xcc7a3706Df7FCcFbF99f577382BC62C0e565FcF0);
-    address bob   = address(0x513B1d92C2CA2d364B9d99ABabA485D298bdCbea);
+    address bob = address(0x513B1d92C2CA2d364B9d99ABabA485D298bdCbea);
 
     function setUp() public {
         token = new MockERC20("Test Token", "TTK", 1_000_000 ether);

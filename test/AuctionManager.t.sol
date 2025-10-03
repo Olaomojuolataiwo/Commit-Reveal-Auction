@@ -25,13 +25,7 @@ contract AuctionManagerTest is Test {
         uint256 deposit = 1 ether;
 
         // Create auction
-        address auctionAddr = manager.createAuction(
-            beneficiary,
-            address(token),
-            commitBlocks,
-            revealBlocks,
-            deposit
-        );
+        address auctionAddr = manager.createAuction(beneficiary, address(token), commitBlocks, revealBlocks, deposit);
 
         // Check auction is not zero address
         assertTrue(auctionAddr != address(0), "Auction address should not be zero");

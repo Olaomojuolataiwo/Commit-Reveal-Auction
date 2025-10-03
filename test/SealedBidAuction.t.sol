@@ -8,7 +8,7 @@ contract SealedBidAuctionTest is Test {
     SealedBidAuction auction;
 
     address alice = address(0xA11CE);
-    address bob   = address(0xB0B);
+    address bob = address(0xB0B);
     address beneficiary = address(0xBEEF);
 
     // test params
@@ -22,14 +22,13 @@ contract SealedBidAuctionTest is Test {
         vm.deal(bob, 1 ether);
         vm.deal(beneficiary, 0 ether);
 
-
-	    auction = new SealedBidAuction(
+        auction = new SealedBidAuction(
             address(this),
-	    beneficiary,
-            address(0),         // use native ETH
+            beneficiary,
+            address(0), // use native ETH
             block.number + commitBlocks,
             block.number + commitBlocks + revealBlocks,
-	    deposit
+            deposit
         );
     }
 
@@ -71,7 +70,7 @@ contract SealedBidAuctionTest is Test {
 
         // Bob (winner) withdraws deposit, then pays bid
         balBefore = bob.balance;
-	vm.expectRevert("winner cannot withdraw (funds already paid)");
+        vm.expectRevert("winner cannot withdraw (funds already paid)");
         vm.prank(bob);
         auction.withdraw();
         assertEq(bob.balance, balBefore);

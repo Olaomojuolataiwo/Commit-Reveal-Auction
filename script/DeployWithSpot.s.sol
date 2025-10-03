@@ -6,10 +6,7 @@ import "../src/VulnerableSealedBidAuctionWithSpot.sol";
 import "../src/HardenedSealedBidAuctionWithSpot.sol";
 
 contract DeployWithSpot is Script {
-    function run()
-        external
-        returns (VulnerableSealedBidAuctionWithSpot vuln, HardenedSealedBidAuctionWithSpot hard)
-    {
+    function run() external returns (VulnerableSealedBidAuctionWithSpot vuln, HardenedSealedBidAuctionWithSpot hard) {
         uint256 deployerPrivateKey = vm.envUint("PRIVATE_KEY");
         address deployer = vm.addr(deployerPrivateKey);
         address beneficiary = vm.envAddress("BENEFICIARY");
@@ -24,23 +21,11 @@ contract DeployWithSpot is Script {
         vm.startBroadcast(deployerPrivateKey);
 
         vuln = new VulnerableSealedBidAuctionWithSpot(
-            deployer,
-            beneficiary,
-            paymentToken,
-            commitEndBlock,
-            revealEndBlock,
-            depositAmount,
-            priceOracle
+            deployer, beneficiary, paymentToken, commitEndBlock, revealEndBlock, depositAmount, priceOracle
         );
 
         hard = new HardenedSealedBidAuctionWithSpot(
-            deployer,
-            beneficiary,
-            paymentToken,
-            commitEndBlock,
-            revealEndBlock,
-            depositAmount,
-            priceOracle
+            deployer, beneficiary, paymentToken, commitEndBlock, revealEndBlock, depositAmount, priceOracle
         );
 
         vm.stopBroadcast();

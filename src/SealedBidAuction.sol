@@ -14,7 +14,11 @@ interface IERC20Minimal {
 
 abstract contract ReentrancyGuard {
     uint256 private _status;
-    constructor() { _status = 1; }
+
+    constructor() {
+        _status = 1;
+    }
+
     modifier nonReentrant() {
         require(_status == 1, "reentrant");
         _status = 2;
@@ -25,19 +29,19 @@ abstract contract ReentrancyGuard {
 
 contract SealedBidAuction is ReentrancyGuard {
     // --- Immutable configuration set at deploy ---
-    address public immutable creator;        // deployer / auction creator
-    address public immutable beneficiary;   // where winner funds & slashed deposits go
-    address public immutable paymentToken;  // address(0) => native ETH, else ERC20 token
+    address public immutable creator; // deployer / auction creator
+    address public immutable beneficiary; // where winner funds & slashed deposits go
+    address public immutable paymentToken; // address(0) => native ETH, else ERC20 token
     uint256 public immutable commitEndBlock; // inclusive: last block allowed for commit
     uint256 public immutable revealEndBlock; // inclusive: last block allowed for reveal
     uint256 public immutable depositAmount; // deposit required at commit
 
     // --- Auction state ---
-    mapping(address => bytes32) public commitments;  // bidder => commitment hash
-    mapping(address => bool) public revealed;        // bidder => revealed flag
-    mapping(address => uint256) public revealedBid;  // bidder => bid amount (collected at reveal)
-    mapping(address => uint256) public deposits;     // bidder => deposit amount (non-zero after commit)
-    address[] public bidders;                        // list of bidders (for slashing iteration in finalize)
+    mapping(address => bytes32) public commitments; // bidder => commitment hash
+    mapping(address => bool) public revealed; // bidder => revealed flag
+    mapping(address => uint256) public revealedBid; // bidder => bid amount (collected at reveal)
+    mapping(address => uint256) public deposits; // bidder => deposit amount (non-zero after commit)
+    address[] public bidders; // list of bidders (for slashing iteration in finalize)
 
     bool public finalized;
     address public winner;
@@ -56,10 +60,12 @@ contract SealedBidAuction is ReentrancyGuard {
         require(block.number <= commitEndBlock, "not commit phase");
         _;
     }
+
     modifier onlyDuringReveal() {
         require(block.number > commitEndBlock && block.number <= revealEndBlock, "not reveal phase");
         _;
     }
+
     modifier onlyAfterRevealWindow() {
         require(block.number > revealEndBlock, "reveal window open");
         _;
@@ -178,7 +184,7 @@ contract SealedBidAuction is ReentrancyGuard {
                 deposits[b] = 0;
                 if (paymentToken == address(0)) {
                     // send ETH to beneficiary
-                    (bool sent, ) = beneficiary.call{value: amt}("");
+                    (bool sent,) = beneficiary.call{value: amt}("");
                     require(sent, "slash transfer failed");
                 } else {
                     bool ok = IERC20Minimal(paymentToken).transfer(beneficiary, amt);
@@ -193,7 +199,7 @@ contract SealedBidAuction is ReentrancyGuard {
             uint256 pay = revealedBid[winner];
             revealedBid[winner] = 0; // zero out to prevent double-withdraw
             if (paymentToken == address(0)) {
-                (bool sent, ) = beneficiary.call{value: pay}("");
+                (bool sent,) = beneficiary.call{value: pay}("");
                 require(sent, "payout failed");
             } else {
                 bool ok = IERC20Minimal(paymentToken).transfer(beneficiary, pay);
@@ -227,7 +233,7 @@ contract SealedBidAuction is ReentrancyGuard {
         uint256 totalRefund = refundBid + refundDep;
 
         if (paymentToken == address(0)) {
-            (bool sent, ) = msg.sender.call{value: totalRefund}("");
+            (bool sent,) = msg.sender.call{value: totalRefund}("");
             require(sent, "withdraw ETH failed");
         } else {
             bool ok = IERC20Minimal(paymentToken).transfer(msg.sender, totalRefund);

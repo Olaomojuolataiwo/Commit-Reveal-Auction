@@ -17,7 +17,7 @@ contract AuctionManager {
     ) external returns (address) {
         // msg.sender becomes the owner
         SealedBidAuction auction = new SealedBidAuction(
-            msg.sender,      // 👈 owner
+            msg.sender, // 👈 owner
             beneficiary,
             bidToken,
             commitBlocks,

@@ -6,17 +6,17 @@ import "forge-std/Script.sol";
 import "../src/MockERC20.sol";
 import "../src/SealedBidAuction.sol";
 
-	/// Foundry script used as small single-purpose entry functions for shell orchestration.
-	
-	contract ScenarioActions is Script {
-        function _makeCommitment(uint256 amount, address bidder, bytes32 nonce) internal pure returns (bytes32) {
-        return keccak256(abi.encodePacked(amount, bidder, nonce));
-        }
+/// Foundry script used as small single-purpose entry functions for shell orchestration.
 
-          // -------------------------
-         // deploy: deploy token (if missing) and auction
-        // -------------------------
-        function deploy() external {
+contract ScenarioActions is Script {
+    function _makeCommitment(uint256 amount, address bidder, bytes32 nonce) internal pure returns (bytes32) {
+        return keccak256(abi.encodePacked(amount, bidder, nonce));
+    }
+
+    // -------------------------
+    // deploy: deploy token (if missing) and auction
+    // -------------------------
+    function deploy() external {
         uint256 deployerPk = vm.envUint("DEPLOYER_PK");
         address tokenAddr = address(0);
 
@@ -48,14 +48,8 @@ import "../src/SealedBidAuction.sol";
         address beneficiary = vm.addr(vm.envUint("DEPLOYER_PK"));
         if (bytes(vm.envString("BENEFICIARY")).length != 0) beneficiary = vm.envAddress("BENEFICIARY");
 
-        SealedBidAuction auction = new SealedBidAuction(
-            msg.sender,
-            beneficiary,
-            tokenAddr,
-            commitEndBlock,
-            revealEndBlock,
-            deposit
-        );
+        SealedBidAuction auction =
+            new SealedBidAuction(msg.sender, beneficiary, tokenAddr, commitEndBlock, revealEndBlock, deposit);
 
         console.log("Deployed Auction", address(auction));
         console.log("Payment token", tokenAddr);
@@ -63,14 +57,14 @@ import "../src/SealedBidAuction.sol";
         console.log("revealEndBlock", revealEndBlock);
 
         vm.stopBroadcast();
-        }
+    }
 
-         // -------------------------
-        // commitBoth: bidders approve and commit commitments (one action)
-       // -------------------------
-        function commitBoth() external {
+    // -------------------------
+    // commitBoth: bidders approve and commit commitments (one action)
+    // -------------------------
+    function commitBoth() external {
         require(bytes(vm.envString("AUCTION_ADDR")).length != 0, "AUCTION_ADDR missing");
-        address payable auctionAddr = payable (vm.envAddress("AUCTION_ADDR"));
+        address payable auctionAddr = payable(vm.envAddress("AUCTION_ADDR"));
         address tokenAddr = address(0);
         if (bytes(vm.envString("MOCK_TOKEN_ADDR")).length != 0) tokenAddr = vm.envAddress("MOCK_TOKEN_ADDR");
 
@@ -104,14 +98,14 @@ import "../src/SealedBidAuction.sol";
         } else {
             console.log("Skipping attacker commit (attackerBid == 0)");
         }
-        }
+    }
 
-        // -------------------------
-        // cheatReveal: attacker attempts inflated reveal with low-level call
-        // -------------------------
-        function cheatReveal() external {
+    // -------------------------
+    // cheatReveal: attacker attempts inflated reveal with low-level call
+    // -------------------------
+    function cheatReveal() external {
         require(bytes(vm.envString("AUCTION_ADDR")).length != 0, "AUCTION_ADDR missing");
-        address payable auctionAddr = payable (vm.envAddress("AUCTION_ADDR"));
+        address payable auctionAddr = payable(vm.envAddress("AUCTION_ADDR"));
         uint256 attackerPk = vm.envUint("ATTACKER_PK");
         uint256 attackerBid = vm.envUint("ATTACKER_BID");
         uint256 inflate = 0;
@@ -122,9 +116,8 @@ import "../src/SealedBidAuction.sol";
         uint256 inflated = attackerBid + inflate;
 
         vm.startBroadcast(attackerPk);
-        (bool ok, bytes memory ret) = address(auctionAddr).call(
-            abi.encodeWithSelector(SealedBidAuction.reveal.selector, inflated, attackerNonce)
-        );
+        (bool ok, bytes memory ret) =
+            address(auctionAddr).call(abi.encodeWithSelector(SealedBidAuction.reveal.selector, inflated, attackerNonce));
         if (ok) {
             console.log("CHEAT_REVEAL_SUCCEEDED (unexpected)");
         } else {
@@ -132,14 +125,14 @@ import "../src/SealedBidAuction.sol";
             console.log("CHEAT_REVEAL_REVERT", reason);
         }
         vm.stopBroadcast();
-        }
+    }
 
-        // -------------------------
-        // revealBoth: honest + attacker reveal correctly
-        // -------------------------
-        function revealBoth() external {
+    // -------------------------
+    // revealBoth: honest + attacker reveal correctly
+    // -------------------------
+    function revealBoth() external {
         require(bytes(vm.envString("AUCTION_ADDR")).length != 0, "AUCTION_ADDR missing");
-        address payable auctionAddr = payable (vm.envAddress("AUCTION_ADDR"));
+        address payable auctionAddr = payable(vm.envAddress("AUCTION_ADDR"));
         uint256 alicePk = vm.envUint("ALICE_PK");
         uint256 attackerPk = vm.envUint("ATTACKER_PK");
         uint256 aliceBid = vm.envUint("ALICE_BID");
@@ -160,13 +153,13 @@ import "../src/SealedBidAuction.sol";
         } else {
             console.log("Skipping attacker reveal (attackerBid == 0)");
         }
-        }
+    }
 
-        // attacker-only reveal
-        
-	function revealAttackerOnly() external {
+    // attacker-only reveal
+
+    function revealAttackerOnly() external {
         require(bytes(vm.envString("AUCTION_ADDR")).length != 0, "AUCTION_ADDR missing");
-        address payable auctionAddr = payable (vm.envAddress("AUCTION_ADDR"));
+        address payable auctionAddr = payable(vm.envAddress("AUCTION_ADDR"));
         uint256 attackerPk = vm.envUint("ATTACKER_PK");
         uint256 attackerBid = vm.envUint("ATTACKER_BID");
         bytes32 attackerNonce = bytes32(vm.envUint("ATTACKER_NONCE"));
@@ -174,12 +167,12 @@ import "../src/SealedBidAuction.sol";
         SealedBidAuction(auctionAddr).reveal(attackerBid, attackerNonce);
         console.log("Attacker revealed (only)");
         vm.stopBroadcast();
-        }
+    }
 
-        // alice-only reveal
-        function revealAliceOnly() external {
+    // alice-only reveal
+    function revealAliceOnly() external {
         require(bytes(vm.envString("AUCTION_ADDR")).length != 0, "AUCTION_ADDR missing");
-        address payable auctionAddr = payable (vm.envAddress("AUCTION_ADDR"));
+        address payable auctionAddr = payable(vm.envAddress("AUCTION_ADDR"));
         uint256 alicePk = vm.envUint("ALICE_PK");
         uint256 aliceBid = vm.envUint("ALICE_BID");
         bytes32 aliceNonce = bytes32(vm.envUint("ALICE_NONCE"));
@@ -187,17 +180,17 @@ import "../src/SealedBidAuction.sol";
         SealedBidAuction(auctionAddr).reveal(aliceBid, aliceNonce);
         console.log("Alice revealed (only)");
         vm.stopBroadcast();
-        }
+    }
 
-        // attacker does not reveal (no-op) - helper for clarity
-        function attackerDontReveal() external view {
+    // attacker does not reveal (no-op) - helper for clarity
+    function attackerDontReveal() external view {
         console.log("attacker will not reveal (no-op)");
-        }
+    }
 
-        // attacker does a double reveal: first valid, then attempt second (should revert)
-        function attackerDoubleReveal() external {
+    // attacker does a double reveal: first valid, then attempt second (should revert)
+    function attackerDoubleReveal() external {
         require(bytes(vm.envString("AUCTION_ADDR")).length != 0, "AUCTION_ADDR missing");
-        address payable auctionAddr = payable (vm.envAddress("AUCTION_ADDR"));
+        address payable auctionAddr = payable(vm.envAddress("AUCTION_ADDR"));
         uint256 attackerPk = vm.envUint("ATTACKER_PK");
         uint256 attackerBid = vm.envUint("ATTACKER_BID");
         bytes32 attackerNonce = bytes32(vm.envUint("ATTACKER_NONCE"));
@@ -208,29 +201,27 @@ import "../src/SealedBidAuction.sol";
 
         // second (invalid) reveal attempt - different amount
         uint256 cheated = attackerBid + 1;
-        (bool ok, bytes memory ret) = address(auctionAddr).call(
-            abi.encodeWithSelector(SealedBidAuction.reveal.selector, cheated, attackerNonce)
-        );
+        (bool ok, bytes memory ret) =
+            address(auctionAddr).call(abi.encodeWithSelector(SealedBidAuction.reveal.selector, cheated, attackerNonce));
         if (ok) {
             console.log("Attacker double-reveal unexpectedly SUCCEEDED");
         } else {
             console.log("double_reveal_revert", _decodeRevert(ret));
         }
         vm.stopBroadcast();
-        }
+    }
 
-        // replayer: low-level caller tries to replay honest preimage
-        function cheatReplayCall() external {
+    // replayer: low-level caller tries to replay honest preimage
+    function cheatReplayCall() external {
         require(bytes(vm.envString("AUCTION_ADDR")).length != 0, "AUCTION_ADDR missing");
-        address payable auctionAddr = payable (vm.envAddress("AUCTION_ADDR"));
+        address payable auctionAddr = payable(vm.envAddress("AUCTION_ADDR"));
         uint256 replayerPk = vm.envUint("REPLAYER_PK");
         uint256 aliceBid = vm.envUint("ALICE_BID");
         bytes32 aliceNonce = bytes32(vm.envUint("ALICE_NONCE"));
 
         vm.startBroadcast(replayerPk);
-        (bool ok, bytes memory ret) = address(auctionAddr).call(
-            abi.encodeWithSelector(SealedBidAuction.reveal.selector, aliceBid, aliceNonce)
-        );
+        (bool ok, bytes memory ret) =
+            address(auctionAddr).call(abi.encodeWithSelector(SealedBidAuction.reveal.selector, aliceBid, aliceNonce));
         if (ok) {
             console.log("REPLAYER reveal unexpectedly SUCCEEDED (unexpected)");
         } else {
@@ -244,7 +235,7 @@ import "../src/SealedBidAuction.sol";
     // -------------------------
     function finalize() external {
         require(bytes(vm.envString("AUCTION_ADDR")).length != 0, "AUCTION_ADDR missing");
-        address payable auctionAddr = payable (vm.envAddress("AUCTION_ADDR"));
+        address payable auctionAddr = payable(vm.envAddress("AUCTION_ADDR"));
         uint256 deployerPk = vm.envUint("DEPLOYER_PK");
 
         vm.startBroadcast(deployerPk);
@@ -258,7 +249,7 @@ import "../src/SealedBidAuction.sol";
     // -------------------------
     function status() external view {
         require(bytes(vm.envString("AUCTION_ADDR")).length != 0, "AUCTION_ADDR missing");
-        address payable auctionAddr = payable (vm.envAddress("AUCTION_ADDR"));
+        address payable auctionAddr = payable(vm.envAddress("AUCTION_ADDR"));
         SealedBidAuction auction = SealedBidAuction(auctionAddr);
 
         console.log("block.number", block.number);
@@ -283,7 +274,9 @@ import "../src/SealedBidAuction.sol";
     /// decode revert message
     function _decodeRevert(bytes memory data) internal pure returns (string memory) {
         if (data.length < 68) return "no revert message";
-        assembly { data := add(data, 0x04) }
+        assembly {
+            data := add(data, 0x04)
+        }
         return abi.decode(data, (string));
     }
 }

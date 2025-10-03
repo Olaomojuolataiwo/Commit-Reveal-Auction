@@ -3,7 +3,6 @@ pragma solidity ^0.8.19;
 
 import "src/utils/Interfaces.sol";
 
-
 /// @title HardenedSealedAuctionBidWithSpot
 /// @dev Secure variant: reads and *stores* spot price at commit time (snapshot). Winner selection and any
 ///      effective-bid calculation use the commit-time snapshot, so a later single-block price manipulation
@@ -19,19 +18,19 @@ contract HardenedSealedBidAuctionWithSpot is ReentrancyGuard {
     address public immutable priceSource; // oracle address (returns price scaled by 1e18)
 
     // --- Auction state ---
-    mapping(address => bytes32) public commitments;          // bidder => commitment hash
-    mapping(address => bool) public revealed;                // bidder => revealed flag
-    mapping(address => uint256) public revealedBid;          // bid amount provided at reveal
+    mapping(address => bytes32) public commitments; // bidder => commitment hash
+    mapping(address => bool) public revealed; // bidder => revealed flag
+    mapping(address => uint256) public revealedBid; // bid amount provided at reveal
     mapping(address => uint256) public revealedEffectiveBid; // effective metric computed at reveal using commit-time snapshot
-    mapping(address => uint256) public deposits;             // deposit recorded at commit
+    mapping(address => uint256) public deposits; // deposit recorded at commit
     mapping(address => uint256) public priceSnapshotAtCommit; // price snapshot taken at commit time
     address[] public bidders;
 
     bool public finalized;
     address public winner;
-    uint256 public winningBid;            // nominal winning bid (amount)
-    uint256 public winningEffectiveBid;   // effective metric used for selection
-    uint256 public winningRevealBlock;    // tie-breaker: earlier reveal block wins
+    uint256 public winningBid; // nominal winning bid (amount)
+    uint256 public winningEffectiveBid; // effective metric used for selection
+    uint256 public winningRevealBlock; // tie-breaker: earlier reveal block wins
 
     // --- Events ---
     event BidCommitted(address indexed bidder);
@@ -45,10 +44,12 @@ contract HardenedSealedBidAuctionWithSpot is ReentrancyGuard {
         require(block.number <= commitEndBlock, "not commit phase");
         _;
     }
+
     modifier onlyDuringReveal() {
         require(block.number > commitEndBlock && block.number <= revealEndBlock, "not reveal phase");
         _;
     }
+
     modifier onlyAfterRevealWindow() {
         require(block.number > revealEndBlock, "reveal window open");
         _;
@@ -181,7 +182,7 @@ contract HardenedSealedBidAuctionWithSpot is ReentrancyGuard {
                 uint256 amt = deposits[b];
                 deposits[b] = 0;
                 if (paymentToken == address(0)) {
-                    (bool sent, ) = beneficiary.call{value: amt}("");
+                    (bool sent,) = beneficiary.call{value: amt}("");
                     require(sent, "slash transfer failed");
                 } else {
                     bool ok = IERC20Minimal(paymentToken).transfer(beneficiary, amt);
@@ -196,7 +197,7 @@ contract HardenedSealedBidAuctionWithSpot is ReentrancyGuard {
             uint256 pay = revealedBid[winner];
             revealedBid[winner] = 0; // zero out to prevent double-withdraw
             if (paymentToken == address(0)) {
-                (bool sent, ) = beneficiary.call{value: pay}("");
+                (bool sent,) = beneficiary.call{value: pay}("");
                 require(sent, "payout failed");
             } else {
                 bool ok = IERC20Minimal(paymentToken).transfer(beneficiary, pay);
@@ -225,7 +226,7 @@ contract HardenedSealedBidAuctionWithSpot is ReentrancyGuard {
         uint256 totalRefund = refundBid + refundDep;
 
         if (paymentToken == address(0)) {
-            (bool sent, ) = msg.sender.call{value: totalRefund}("");
+            (bool sent,) = msg.sender.call{value: totalRefund}("");
             require(sent, "withdraw ETH failed");
         } else {
             bool ok = IERC20Minimal(paymentToken).transfer(msg.sender, totalRefund);
@@ -241,9 +242,11 @@ contract HardenedSealedBidAuctionWithSpot is ReentrancyGuard {
     function getBidders() external view returns (address[] memory) {
         return bidders;
     }
+
     function getPriceSnapshot(address bidder) external view returns (uint256) {
         return priceSnapshotAtCommit[bidder];
     }
+
     function getRevealedEffectiveBid(address bidder) external view returns (uint256) {
         return revealedEffectiveBid[bidder];
     }
