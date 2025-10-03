@@ -2,6 +2,7 @@
 from web3 import Web3
 from flashbots import flashbot
 from eth_account import Account
+from typing import List, Union
 
 class FlashbotHelper:
     def __init__(self, rpc_url: str, relay_url: str, searcher_privkey: str):
@@ -11,19 +12,18 @@ class FlashbotHelper:
         # Attach flashbots middleware
         flashbot(self.w3, self.searcher, endpoint_uri=relay_url)
 
-    def send_bundle(self, *signed_tx_hexes, target_block_offset: int = 1):
+    def send_bundle(self, signed_transactions: List[Union[bytes, str]], target_block_number: int):
         """
-        Accepts raw signed tx hex strings (varargs) and sends a flashbots bundle
-        targeting current_block + target_block_offset. Returns the send_bundle result object
-        (so caller can call .wait() or check inclusion).
+        Accepts a list of raw signed transactions (bytes or hex string) and sends a flashbots bundle
+        targeting a specific block number.
+
+        The returned result object includes a crucial .wait() method used by the caller
+        to confirm bundle inclusion.
         """
-        block = self.w3.eth.block_number + target_block_offset
+        # The web3-flashbots library expects a list of dictionaries:
+        bundle = [{"signed_transaction": tx} for tx in signed_transactions]
 
-        bundle = [{"signed_transaction": tx} for tx in signed_tx_hexes]
+        result = self.w3.flashbots.send_bundle(bundle, target_block_number=target_block_number)
+        print(f"    Bundle sent to Flashbots for block {target_block_number}")
 
-        result = self.w3.flashbots.send_bundle(bundle, target_block_number=block)
-        print(f"  📤 Bundle sent to Flashbots for block {block}")
-
-        # don't wait here for too long — caller will decide how to wait/handle
-        # but return the result object for the orchestrator to inspect/wait on.
         return result
