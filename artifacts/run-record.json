@@ -1,0 +1,14 @@
+{
+  "vuln": "0xaBa8826695cE8F1d1388C2334d26d3D2a01B6738",
+  "hard": "0xeAe25ab7f29F0a3F262B0eA566b370DA827D0a7E",
+  "alice": "0xcc7a3706Df7FCcFbF99f577382BC62C0e565FcF0",
+  "attacker": "0x099BA97a37FA019c064a2517026e3c2Ea8DB9964",
+  "alice_bid_amount": "10000000000000000",
+  "attacker_bid_amount": "100000000000000",
+  "v_winner": "0xcc7a3706Df7FCcFbF99f577382BC62C0e565FcF0",
+  "h_winner": "0xcc7a3706Df7FCcFbF99f577382BC62C0e565FcF0",
+  "v_bid": "10000000000000000",
+  "h_bid": "10000000000000000",
+  "v_eff_bid_attacker": "200000000000000000",
+  "h_eff_bid_attacker": "200000000000000000"
+}

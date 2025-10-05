@@ -10,11 +10,11 @@ contract DeployWithSpot is Script {
         uint256 deployerPrivateKey = vm.envUint("PRIVATE_KEY");
         address deployer = vm.addr(deployerPrivateKey);
         address beneficiary = vm.envAddress("BENEFICIARY");
-        address paymentToken = vm.envAddress("PAYMENT_TOKEN");
+        address paymentToken = address(0);
         address priceOracle = vm.envAddress("PRICE_ORACLE");
 
         // Hardcoded params (adjust if needed)
-        uint256 depositAmount = 1e18; // 1 token (assuming 18 decimals)
+        uint256 depositAmount = 1e15; // 0.001 ETH deposit (assuming 18 decimals)
         uint256 commitEndBlock = block.number + 20;
         uint256 revealEndBlock = block.number + 40;
 

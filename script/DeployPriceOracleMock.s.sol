@@ -16,8 +16,8 @@ contract DeployPriceOracleMock is Script {
         // Deploy the oracle
         PriceOracleMock oracle = new PriceOracleMock();
 
-        // Optionally set an initial price (1e18 scaling, e.g. 2000 * 1e18 for $2000)
-        oracle.setPrice(2000 ether);
+        // Optionally set an initial price 
+        oracle.setPrice(0.005 ether);
 
         console.log("PriceOracleMock deployed at:", address(oracle));
 
