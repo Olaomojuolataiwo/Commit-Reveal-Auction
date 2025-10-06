@@ -1,14 +1,14 @@
 {
-  "vuln": "0xaBa8826695cE8F1d1388C2334d26d3D2a01B6738",
-  "hard": "0xeAe25ab7f29F0a3F262B0eA566b370DA827D0a7E",
+  "vuln": "0xDF6fF39B813A3D30e195922421D14253c98ff055",
+  "hard": "0xFEC155a91Bdc767624202e14E7120dAd22E5B01F",
   "alice": "0xcc7a3706Df7FCcFbF99f577382BC62C0e565FcF0",
   "attacker": "0x099BA97a37FA019c064a2517026e3c2Ea8DB9964",
   "alice_bid_amount": "10000000000000000",
-  "attacker_bid_amount": "100000000000000",
-  "v_winner": "0xcc7a3706Df7FCcFbF99f577382BC62C0e565FcF0",
+  "attacker_bid_amount": "3000000000000000",
+  "v_winner": "0x099BA97a37FA019c064a2517026e3c2Ea8DB9964",
   "h_winner": "0xcc7a3706Df7FCcFbF99f577382BC62C0e565FcF0",
-  "v_bid": "10000000000000000",
+  "v_bid": "3000000000000000",
   "h_bid": "10000000000000000",
-  "v_eff_bid_attacker": "200000000000000000",
-  "h_eff_bid_attacker": "200000000000000000"
+  "v_eff_bid_attacker": "120000000000000",
+  "h_eff_bid_attacker": "15000000000000"
 }

@@ -15,8 +15,8 @@ contract DeployWithSpot is Script {
 
         // Hardcoded params (adjust if needed)
         uint256 depositAmount = 1e15; // 0.001 ETH deposit (assuming 18 decimals)
-        uint256 commitEndBlock = block.number + 20;
-        uint256 revealEndBlock = block.number + 40;
+        uint256 commitEndBlock = block.number + 10;
+        uint256 revealEndBlock = block.number + 45;
 
         vm.startBroadcast(deployerPrivateKey);
 
