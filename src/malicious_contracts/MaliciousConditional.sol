@@ -6,7 +6,7 @@ pragma solidity ^0.8.20;
 
 import "src/utils/ApproveHelper.sol";
 
-contract MaliciousConditional is ApproveHelper{
+contract MaliciousConditional is ApproveHelper {
     uint256 public calls;
     uint256 public revertEvery; // e.g. 3 => revert every 3rd call
 

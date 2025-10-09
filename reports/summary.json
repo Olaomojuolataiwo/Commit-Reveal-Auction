@@ -1,0 +1,14 @@
+{
+  "Revert": {
+    "error": "Incorrect argument count. Expected '3'. Got '1'"
+  },
+  "GasBurn": {
+    "error": "Incorrect argument count. Expected '3'. Got '1'"
+  },
+  "Reentrant": {
+    "error": "Incorrect argument count. Expected '3'. Got '1'"
+  },
+  "Conditional": {
+    "error": "Incorrect argument count. Expected '3'. Got '1'"
+  }
+}

@@ -20,6 +20,9 @@ contract HardenedAuction {
     uint256 public commitDeposit;         // deposit required per commit (in token units)
     uint256 public maxCommitsPerAddress;  // cap commits per address
     uint256 public maxProcessPerCall;     // batch size for paged finalize
+    uint256 public commitDuration;
+    uint256 public revealDuration;
+
 
     event AuctionCreated(uint256 indexed id);
     event CommitRecorded(uint256 indexed auctionId, address indexed bidder);
@@ -35,6 +38,8 @@ contract HardenedAuction {
 
     struct AuctionData {
         uint256 id;
+        uint256 commitEndBlock;
+        uint256 revealEndBlock;
         address[] commitList;                    // list of unique bidders (for paged finalize)
         mapping(address => CommitInfo) commits;  // per-address commit info
         mapping(address => uint256) withdrawable; // gather token credits for pull
@@ -44,12 +49,14 @@ contract HardenedAuction {
 
     mapping(uint256 => AuctionData) internal auctions;
 
-    constructor(address tokenAddress, uint256 _commitDeposit, uint256 _maxCommitsPerAddress) {
+    constructor(address tokenAddress, uint256 _commitDeposit, uint256 _maxCommitsPerAddress, uint256 _commitDuration, uint256 _revealDuration) {
         require(tokenAddress != address(0), "token required");
         token = IERC20Minimal(tokenAddress);
         commitDeposit = _commitDeposit;
         require(_maxCommitsPerAddress > 0, "max commits per address must be >0");
         maxCommitsPerAddress = _maxCommitsPerAddress;
+        commitDuration = _commitDuration;
+        revealDuration = _revealDuration;
         maxProcessPerCall = 50; // default, configurable by owner if needed (not implemented here)
     }
 
@@ -58,13 +65,31 @@ contract HardenedAuction {
         auctionCounter++;
         uint256 id = auctionCounter;
         AuctionData storage a = auctions[id];
+        a.commitEndBlock = block.number + commitDuration;
+        a.revealEndBlock = a.commitEndBlock + revealDuration;
         a.id = id;
         emit AuctionCreated(id);
         return id;
     }
 
+    modifier onlyDuringCommit(uint256 auctionId) {
+    require(block.number <= auctions[auctionId].commitEndBlock, "not during commit phase");
+    _;
+    }
+
+    modifier onlyDuringReveal(uint256 auctionId) {
+    require(block.number > auctions[auctionId].commitEndBlock && block.number <= auctions[auctionId].revealEndBlock, "not during reveal phase");
+    _;
+    }
+
+    modifier onlyAfterReveal(uint256 auctionId) {
+    require(block.number > auctions[auctionId].revealEndBlock, "reveal not finished");
+    _;
+    }
+
+
     /// @notice commit: requires the ERC20 deposit and enforces a per-address cap
-    function commit(uint256 auctionId, bytes32 commitHash) external {
+    function commit(uint256 auctionId, bytes32 commitHash) external onlyDuringCommit(auctionId) {
         AuctionData storage a = auctions[auctionId];
         CommitInfo storage info = a.commits[msg.sender];
 
@@ -88,11 +113,12 @@ contract HardenedAuction {
     }
 
     /// @notice reveal: verify commit and credit withdrawable amount (pull pattern)
-    function reveal(uint256 auctionId, uint256 bidAmount, bytes32 salt) external {
+    function reveal(uint256 auctionId, uint256 bidAmount, bytes32 salt) external onlyDuringReveal(auctionId) {
         AuctionData storage a = auctions[auctionId];
         CommitInfo storage info = a.commits[msg.sender];
         require(info.exists, "no commit found for sender");
         require(info.commitHash == keccak256(abi.encodePacked(bidAmount, salt)), "bad reveal");
+
         // Credit withdrawable amount (in tokens) — we treat bid as credit for simplicity
         a.withdrawable[msg.sender] = bidAmount;
         emit Revealed(auctionId, msg.sender, bidAmount);
@@ -100,9 +126,10 @@ contract HardenedAuction {
 
     /// @notice Paged finalization. Each call processes up to maxProcessPerCall bidders, marks finalized when done.
     /// This avoids unbounded loops in a single transaction.
-    function finalizePaged(uint256 auctionId) external {
+    function finalizePaged(uint256 auctionId) external onlyAfterReveal(auctionId) {
         AuctionData storage a = auctions[auctionId];
         require(!a.finalized, "already finalized");
+
 
         uint256 cursor = a.finalizeCursor;
         uint256 total = a.commitList.length;
@@ -147,4 +174,16 @@ contract HardenedAuction {
     function isFinalized(uint256 auctionId) external view returns (bool) {
         return auctions[auctionId].finalized;
     }
+
+    /// @notice Getter for per-auction commit end block
+    function getCommitEndBlock(uint256 auctionId) external view returns (uint256) {
+        return auctions[auctionId].commitEndBlock;
+    }
+
+    /// @notice Getter for per-auction reveal end block
+    function getRevealEndBlock(uint256 auctionId) external view returns (uint256) {
+        return auctions[auctionId].revealEndBlock;
+    }
+
+
 }
