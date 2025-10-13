@@ -4,10 +4,10 @@ pragma solidity ^0.8.20;
 import "src/utils/IAuctions.sol";
 import "src/utils/ApproveHelper.sol";
 
-/// @title MaliciousGasBurn
+/// @title MaliciousGasExhaustion
 /// @notice Forwards commit/reveal so the contract is the bidder, but burns gas in receive() to grief push-style flows.
 
-contract MaliciousGasBurn is ApproveHelper {
+contract MaliciousGasExhaustion is ApproveHelper {
     uint256 public burnLoops;
     uint256 public dummy;
 

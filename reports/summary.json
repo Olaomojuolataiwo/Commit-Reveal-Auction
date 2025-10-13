@@ -1,14 +1,14 @@
 {
   "Revert": {
-    "error": "Incorrect argument count. Expected '3'. Got '1'"
+    "error": "{'code': -32000, 'message': 'already known'}"
   },
   "GasBurn": {
-    "error": "Incorrect argument count. Expected '3'. Got '1'"
+    "error": "{'code': -32000, 'message': 'already known'}"
   },
   "Reentrant": {
-    "error": "Incorrect argument count. Expected '3'. Got '1'"
+    "error": "{'code': -32000, 'message': 'already known'}"
   },
   "Conditional": {
-    "error": "Incorrect argument count. Expected '3'. Got '1'"
+    "error": "{'code': -32000, 'message': 'already known'}"
   }
 }

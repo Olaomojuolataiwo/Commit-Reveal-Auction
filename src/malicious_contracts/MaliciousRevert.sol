@@ -44,11 +44,9 @@ contract MaliciousRevert is ApproveHelper{
     }
 
     /// @notice Forward a reveal (both variants use the same reveal signature)
+    /// @notice Forward a reveal (both variants use the same reveal signature)
     function forwardReveal(address auction, uint256 auctionId, uint256 bidAmount, bytes32 salt) external {
-        // Try Vulnerable reveal signature first (it matches Hardened as well)
-        // Use low-level call to avoid revert if auction ABI differs slightly.
-        (bool ok, ) = auction.call(abi.encodeWithSignature("reveal(uint256,uint256,bytes32)", auctionId, bidAmount, salt));
-        require(ok, "reveal call failed");
+    IHardenedAuction(auction).reveal(auctionId, bidAmount, salt);
     }
 
     /// @notice Proxy withdraw: call auction.withdraw(auctionId) from this contract context.

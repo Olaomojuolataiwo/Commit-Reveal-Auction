@@ -44,12 +44,12 @@ HARD_NAME = "HardenedAuction"
 DEFAULTS = {
     "COMMIT_DEPOSIT": 1,
     "MAX_COMMITS_PER_ADDRESS": 5,
-    "N_ATTACK": 20,
+    "N_ATTACK": 10,
     "APPROVE_BUFFER_MULT": 1  # multiplier to compute approve amount: deposit * N_ATTACK * multiplier
 }
 
-AUCTION_COMMIT_DURATION = 20
-AUCTION_REVEAL_DURATION = 30
+AUCTION_COMMIT_DURATION = 10
+AUCTION_REVEAL_DURATION = 20
 
 # ---------- Environment ----------
 WEB3_RPC_URL = os.environ.get("WEB3_RPC_URL")
@@ -154,7 +154,7 @@ def send_signed_tx(w3, signer, tx):
 def build_and_send_contract_tx(w3, acct, contract_fn, gas=300000, value=0):
     tx = contract_fn.build_transaction({
         "from": acct.address,
-        "nonce": w3.eth.get_transaction_count(acct.address),
+        "nonce": current_nonce,
         "gas": gas,
         "gasPrice": w3.eth.gas_price,
         "value": value,
@@ -286,17 +286,19 @@ def artifact_bytecode(art):
     return bc or ""
 
 def deploy_auctions():
+    current_nonce = start_nonce
     # deploy VulnerableAuction(token)
     vuln_bc = artifact_bytecode(vuln_art)
     vuln_contract = w3.eth.contract(abi=vuln_art["abi"], bytecode=vuln_bc)
     tx1 = vuln_contract.constructor(MOCK_TOKEN_ADDRESS, AUCTION_COMMIT_DURATION, AUCTION_REVEAL_DURATION).build_transaction({
         "from": deployer.address,
-        "nonce": w3.eth.get_transaction_count(deployer.address),
+        "nonce": current_nonce,
         "gas": 2_500_000,
         "gasPrice": w3.eth.gas_price,
         "chainId": w3.eth.chain_id
     })
     r1 = send_signed_tx(w3, deployer, tx1)
+    current_nonce += 1
     vuln_addr = r1.contractAddress
     vuln = w3.eth.contract(address=to_checksum(vuln_addr), abi=vuln_art["abi"])
     print("Deployed VulnerableAuction at", vuln_addr, "gasUsed", r1.gasUsed)
@@ -306,18 +308,20 @@ def deploy_auctions():
     hard_contract = w3.eth.contract(abi=hard_art["abi"], bytecode=hard_bc)
     tx2 = hard_contract.constructor(MOCK_TOKEN_ADDRESS, COMMIT_DEPOSIT, MAX_COMMITS_PER_ADDRESS, AUCTION_COMMIT_DURATION, AUCTION_REVEAL_DURATION).build_transaction({
         "from": deployer.address,
-        "nonce": w3.eth.get_transaction_count(deployer.address),
+        "nonce": current_nonce,
         "gas": 3_000_000,
         "gasPrice": w3.eth.gas_price,
         "chainId": w3.eth.chain_id
     })
     r2 = send_signed_tx(w3, deployer, tx2)
+    current_nonce += 1
     hard_addr = r2.contractAddress
     hard = w3.eth.contract(address=to_checksum(hard_addr), abi=hard_art["abi"])
     print("Deployed HardenedAuction at", hard_addr, "gasUsed", r2.gasUsed)
 
     return {"vuln": {"contract": vuln, "address": vuln_addr, "receipt": short_receipt(r1)},
-            "hard": {"contract": hard, "address": hard_addr, "receipt": short_receipt(r2)}}
+            "hard": {"contract": hard, "address": hard_addr, "receipt": short_receipt(r2)},
+            "next_nonce": current_nonce  }
 
 # newAuction helper
 def new_auction_and_id(contract):
@@ -348,10 +352,18 @@ def make_commit_hash(bid_int, salt_bytes):
 def run_scenario(label):
     print("\n=== SCENARIO:", label)
     report = {"label": label, "timestamp": int(time.time()), "N_attack": N_ATTACK}
+
+
+    DEPLOYER_NONCE = w3.eth.get_transaction_count(deployer.address)
+    ALICE_NONCE = w3.eth.get_transaction_count(alice.address)
+    ATTACKER_NONCE = w3.eth.get_transaction_count(attacker.address)
+
+
     # 1) deploy both auctions
-    auctions = deploy_auctions()
-    vuln = auctions["vuln"]["contract"]
-    hard = auctions["hard"]["contract"]
+    auction_results = deploy_auctions(w3, deployer, DEPLOYER_NONCE)
+    DEPLOYER_NONCE = auction_results["next_nonce"]
+    vuln = auctions_result["vuln"]["contract"]
+    hard = auctions_result["hard"]["contract"]
 
 
     # --- PHASE A: VULNERABLE AUCTION LIFECYCLE ---
@@ -397,22 +409,23 @@ def run_scenario(label):
     try:
         # Required tokens for the commit spam
         required_for_spam = COMMIT_DEPOSIT * N_ATTACK
-    
+
         # Ensure the funding covers the spam or the safe minimum, whichever is greater
         required_tokens = max(required_for_spam, SAFE_FUNDING_TARGET)
-    
+
         # Calculate the amount to send (only send what's missing)
         amount_to_send = required_tokens - mal_bal_before
 
         if deployer_bal >= amount_to_send and mal_bal_before < required_tokens:
             tx = token.functions.transfer(mal_addr, amount_to_send).build_transaction({
                 "from": deployer.address,
-                "nonce": w3.eth.get_transaction_count(deployer.address, "pending"),
+                "nonce": DEPLOYER_NONCE,
                 "gas": 120000,
                 "gasPrice": w3.eth.gas_price,
                 "chainId": w3.eth.chain_id
             })
             r = send_signed_tx(w3, DEPLOYER_KEY, tx)
+            DEPLOYER_NONCE += 1
             print("Transferred tokens to malicious contract:", amount_to_send, "tx", r.transactionHash.hex())
             report.setdefault("funding", []).append(short_receipt(r))
         else:
@@ -466,7 +479,8 @@ def run_scenario(label):
                     else:
                         raise RuntimeError(f"Unexpected approveToken ABI inputs: {inputs}")
 
-                rc = build_and_send_contract_tx(w3, attacker, fn, gas=150000)
+                rc = build_and_send_contract_tx(w3, attacker, fn, ATTACKER_NONCE, gas=150000)
+                ATTACKER_NONCE += 1
                 ar = short_receipt(rc)
                 ar["target"] = target_label
                 report["mal_approvals"].append(ar)
@@ -486,7 +500,7 @@ def run_scenario(label):
             al_v = token.functions.allowance(mal_addr, auctions["vuln"]["address"]).call()
             print("Allowances after approve - vuln:", al_v, "hard:", al_h)
             report.setdefault("mal_allowances", {})["vuln"] = al_v
-            
+
         except Exception as e:
             print("approveToken not available or failed:", e)
             report.setdefault("mal_allowance_errors", []).append(str(e))
@@ -498,12 +512,13 @@ def run_scenario(label):
         try:
             txf = token.functions.transfer(alice.address, alice_needed).build_transaction({
                 "from": deployer.address,
-                "nonce": w3.eth.get_transaction_count(deployer.address),
+                "nonce": DEPLOYER_NONCE,
                 "gas": 120000,
                 "gasPrice": w3.eth.gas_price,
                 "chainId": w3.eth.chain_id
             })
             rf = send_signed_tx(w3, deployer, txf)
+            DEPLOYER_NONCE += 1
             report.setdefault("funding", []).append(short_receipt(rf))
             print("Funded alice tokens:", alice_needed)
         except Exception as e:
@@ -513,26 +528,41 @@ def run_scenario(label):
     # 6) Attacker commit loop (N_ATTACK)
     commit_hashes = []
     accepted = 0
+    # Variables to store the successful commit parameters
+    successful_commit_bid = 0
+    successful_commit_salt = None
+
     for i in range(N_ATTACK):
         salt = Web3.keccak(text=f"attack-{label}-{i}")
         ATTACKER_BID = 100
-        ch = make_commit_hash(ATTACKER_BID, salt)  # zero bid spam
+        ch = make_commit_hash(ATTACKER_BID, salt)
+        # Variables to store the successful commit parameters
         try:
             # try vulnerable variant forwarder first (some mal contracts implement it)
             if "forwardCommitVulnerable" in fn_names:
                 auction_id_int = int(vuln_id)
                 fn = mal_contract.functions.forwardCommitVulnerable(auctions["vuln"]["address"], auction_id_int, ch, COMMIT_DEPOSIT)
-                rc = build_and_send_contract_tx(w3, attacker, fn, gas=220000)
+                rc = build_and_send_contract_tx(w3, attacker, fn, nonce=ATTACKER_NONCE, gas=220000)
+                ATTACKER_NONCE += 1
                 commit_hashes.append(rc.transactionHash.hex())
                 accepted += 1
+                if rc.status == 1 and successful_commit_salt is None:
+                    successful_commit_bid = ATTACKER_BID
+                    successful_commit_salt = salt
+                    print(f"Stored first successful commit: bid={successful_commit_bid}")
+
             else:
             # fallback to hardened forwarder
                 auction_id_hard_int = int(hard_id)
                 fn2 = mal_contract.functions.forwardCommitHardened(auctions["hard"]["address"], auction_id_hard_int, ch)
-                rc2 = build_and_send_contract_tx(w3, attacker, fn2, gas=220000)
+                rc2 = build_and_send_contract_tx(w3, attacker, fn2, nonce=ATTACKER_NONCE, gas=220000)
+                ATTACKER_NONCE += 1
                 commit_hashes.append(rc2.transactionHash.hex())
                 accepted += 1
-
+                if rc.status == 1 and successful_commit_salt is None:
+                    successful_commit_bid = ATTACKER_BID
+                    successful_commit_salt = salt
+                    print(f"Stored first successful commit: bid={successful_commit_bid}")
         except Exception as e_inner_tx:
             # The transaction failed. Initialize the error object.
             # NOTE: We use the caught exception 'e_inner_tx' here.
@@ -549,7 +579,7 @@ def run_scenario(label):
             report.setdefault("commit_errors", []).append(err_info)
             if i < 5 or (i % 50 == 0):
                 print("Commit loop error @i=", i, err_info)
-            
+
             # Go to the next iteration of the attack loop
             continue  
 
@@ -563,65 +593,84 @@ def run_scenario(label):
 
     # 7) Alice commit+reveal on Vulnerable auctions
     def alice_commit_reveal(auction_contract, auction_id):
+        global ALICE_NONCE
         salt = Web3.keccak(text=f"alice-{label}")
         bid = 1
         ch = make_commit_hash(bid, salt)
         # approve token for auction (if necessary)
         try:
             txa = token.functions.approve(auction_contract.address, COMMIT_DEPOSIT).build_transaction({
-                "from": alice.address, "nonce": w3.eth.get_transaction_count(alice.address),
-                "gas": 80000, "gasPrice": w3.eth.gas_price, "chainId": w3.eth.chain_id
+                "from": alice.address, "nonce": ALICE_NONCE, "gas": 80000, "gasPrice": w3.eth.gas_price, "chainId": w3.eth.chain_id
             })
             send_signed_tx(w3, ALICE_KEY, txa)
+            ALICE_NONCE += 1
         except Exception:
             pass
         # commit
         try:
             txc = auction_contract.functions.commit(auction_id, ch, COMMIT_DEPOSIT).build_transaction({
-                "from": alice.address, "nonce": w3.eth.get_transaction_count(alice.address),
+                "from": alice.address, "nonce": ALICE_NONCE,
                 "gas": 200000, "gasPrice": w3.eth.gas_price, "chainId": w3.eth.chain_id
             })
-            rc = send_signed_tx(w3, ALICE_KEY, txc)
+            rc = send_signed_tx(w3, alice, txc)
+            ALICE_NONCE +-= 1
+            if rc.status == 1:
+                print(f"Alice commit VULNERABLE SUCCEEDED UNEXPECTEDLY:", rc.transactionHash.hex())
+            elif rc.status == 0:
+                print(f"Alice commit VULNERABLE FAILED (Status 0):", rc.transactionHash.hex())
         except Exception as e:
             report.setdefault("alice_errors", []).append({"stage": "commit", "err": str(e)})
             return {}
+
+
         print("Waiting for commit phase to finish on Vulnerable auction...")
         wait_for_phase_end(vuln, vuln_id, phase="commit")
 
         # reveal
         try:
-            txr = auction_contract.functions.reveal(auction_id, bid, salt).build_transaction({
-                "from": alice.address, "nonce": w3.eth.get_transaction_count(alice.address),
+            padded_salt = salt.ljust(32, b'\x00')
+            txr = auction_contract.functions.reveal(auction_id, bid, padded_salt).build_transaction({
+                "from": alice.address, "nonce": ALICE_NONCE,
                 "gas": 200000, "gasPrice": w3.eth.gas_price, "chainId": w3.eth.chain_id
             })
-            rr = send_signed_tx(w3, ALICE_KEY, txr)
+            rr = send_signed_tx(w3, alice, txr)
+            ALICE_NONCE += 1
+            if rr.status == 0:
+                print(f"Alice reveal VULNERABLE FAILED AS EXPECTED:", rr.transactionHash.hex())
+            elif rr.status == 1:
+                print(f"Alice reveal VULNERABLE SUCCEEDED UNEXPECTEDLY:", rr.transactionHash.hex())
             return {"commit": rc.transactionHash.hex(), "reveal": rr.transactionHash.hex()}
+
         except Exception as e:
             report.setdefault("alice_errors", []).append({"stage": "reveal", "err": str(e)})
+            print(f"Alice reveal failed with exception: {e}")
             return {}
 
-    alice_v_result = alice_commit_reveal(vuln, vuln_id)
-    if isinstance(alice_v_result, dict):
-        report["alice_v"] = {"status": "failed", "stage": "commit/reveal", "raw": alice_v_result}
-    else:
-        report["alice_v"] = short_receipt(alice_v_result)
-        print("Alice commit/reveal SUCCEEDED UNEXPECTEDLY.")
+    # Call the function for the VULNERABLE auction
+    print("\n--- 7a) Alice Commit+Reveal on VULNERABLE Auction ---")
+    # The function will print its own success/failure messages
+    alice_results_vuln = alice_commit_reveal(vuln, vuln_id) 
+    print(f"Alice VULNERABLE results: {alice_results_vuln}")
 
     # --- Vulnerable Auction Malicious Reveal ---
     print("DEBUG: Malicious Revert performing reveal on VULNERABLE auction.")
+    PADDED_SALT = successful_commit_salt.ljust(32, b'\x00')
     try:
         # Use the malicious contract's forwardReveal function
         fnr = mal_contract.functions.forwardReveal(
-            auctions["vuln"]["address"], 
-            vuln_id, 
-            100,              # bidAmount
-            salt       # salt (must match the committed hash)
+            auctions["vuln"]["address"],
+            vuln_id,
+            successful_commit_bid,
+            PADDED_SALT
             )
     # The transaction must be sent by the attacker EOA
-        rcr = build_and_send_contract_tx(w3, attacker, fnr, gas=200000)
+        rcr = build_and_send_contract_tx(w3, attacker, fnr, nonce = ATTACKER_NONCE, gas=200000)
+        ATTACKER_NONCE += 1
         report.setdefault("mal_reveals_vuln", []).append(short_receipt(rcr))
-        print("Malicious reveal VULNERABLE SUCCEEDED:", rcr.transactionHash.hex())
-
+        if rcr.status == 1:
+            print("Malicious reveal VULNERABLE SUCCEEDED:", rcr.transactionHash.hex())
+        elif rcr.status == 0:
+            print("Malicious reveal VULNERABLE FAILED (Status 0):", rcr.transactionHash.hex())
     except Exception as e:
         report.setdefault("mal_reveals_vuln", []).append({"status": "failed", "error": str(e)})
         print(f"Malicious reveal VULNERABLE FAILED UNEXPECTEDLY: {e}")
@@ -633,57 +682,62 @@ def run_scenario(label):
     print("Waiting for reveal phase to end for Vulnerable auction...")
     wait_for_phase_end(vuln, vuln_id, phase="reveal")
     try:
-        rc = build_and_send_contract_tx(w3, deployer, vuln.functions.finalize(vuln_id), gas=2_000_000)
+        rc = build_and_send_contract_tx(w3, deployer, vuln.functions.finalize(vuln_id), nonce = DEPLOYER_NONCE, gas=2_000_000)
+        DEPLOYER_NONCE += 1
         report["vulnerable_finalize"] = short_receipt(rc)
-        print("Vulnerable finalize succeeded gasUsed:", rc.gasUsed)
+        if rc.status == 1:
+            print("Vulnerable finalize SUCCEEDED gasUsed:", rc.gasUsed)
+        else:
+            # A status 0 is a revert (expected in many cases for the vulnerable contract)
+            print("Vulnerable finalize FAILED AS EXPECTED (Status 0) gasUsed:", rc.gasUsed) 
+        
     except Exception as e:
         report["vulnerable_finalize"] = {"status": "failed_or_reverted", "error": str(e)}
-        print("Vulnerable finalize reverted / failed:", e)
+        print("Vulnerable finalize reverted / failed as expected :", e)
 
-    
+
     # 9) Withdraw tests on Vulnerable Contract
     report["withdraws_vuln"] = {}
     # attempt malicious withdraw via proxy (expect fail or revert)
     try:
         fnw = mal_contract.functions.proxyWithdraw(auctions["vuln"]["address"], vuln_id)
-        rcw = build_and_send_contract_tx(w3, attacker, fnw, gas=300000)
+        rcw = build_and_send_contract_tx(w3, attacker, fnw, nonce = ATTACKER_NONCE, gas=300000)
+        ATTACKER_NONCE += 1
 
         # VULNERABLE CONTRACT: Expected result is failure (status 0) due to missing function or griefing revert.
-        if isinstance(rcw, dict) and rcw.get('status') == 0:
+        if rcw.status == 0:
             # Actual Failure (Status 0): Expected outcome for the missing/malicious function call
             report["withdraws_vuln"]["malicious"] = rcw
             print("Attack withdraw fails as expected causing disruption for everyone:", rcw)
-        elif isinstance(rcw, dict) and rcw.get('status') == 1:
+        elif rcw.status == 1:
             # Unexpected Success (Status 1): The function succeeded when it should have failed
             report["withdraws_vuln"]["malicious"] = rcw
             print("Malicious proxyWithdraw SUCCEEDED UNEXPECTEDLY:", rcw.get('txHash'))
-        elif not isinstance(rcw, dict):
-            # Successful receipt object received (Unexpected Success)
-            report["withdraws_vuln"]["malicious"] = short_receipt(rcw)
-            print("Malicious proxyWithdraw SUCCEEDED UNEXPECTEDLY:", short_receipt(rcw))
-        else:
-            # Fallback for unexpected status/result format
-            report["withdraws_vuln"]["malicious"] = rcw
-            print("Malicious proxyWithdraw reported unclassified result:", rcw)
     except Exception as e:
         # UNEXPECTED FAILURE via Exception
-        report["withdraws_hard"]["malicious"] = {"status": "failed", "error": str(e)}
+        report["withdraws_vuln"]["malicious"] = {"status": "failed", "error": str(e)}
         print("Malicious proxyWithdraw FAILED UNEXPECTEDLY (via exception):", e)
 
     # alice withdraw Vulnerable (pull) - EXPECT FAILURE (Missing function)
     try:
-        rca = build_and_send_contract_tx(w3, alice, vuln.functions.withdraw(vuln_id), gas=200000)
-    
-        # This path is only reached on UNEXPECTED SUCCESS
-        report["withdraws_vuln"]["alice_v"] = short_receipt(rca)
-        print("Alice withdraw vulnerable SUCCEEDED UNEXPECTEDLY:", short_receipt(rca))
+        rca = build_and_send_contract_tx(w3, alice, vuln.functions.withdraw(vuln_id), nonce = ALICE_NONCE, gas=200000)
+        ALICE_NONCE += 1
+        # VULNERABLE CONTRACT: Expected result is failure (status 0) due to missing function or griefing revert.
+        if rca.status == 0:
+            # Actual Failure (Status 0): Expected outcome for the missing/malicious function call
+            report["withdraws_vuln"]["alice"] = rca
+            print("Alice withdraw fails as expected causing disruption for everyone:", rca)
+        elif rca.status == 1:
+            # Unexpected Success (Status 1): The function succeeded when it should have failed
+            report["withdraws_vuln"]["alice"] = rca
+            print("Alice withdraw SUCCEEDED UNEXPECTEDLY:", rca.get('txHash'))
     except Exception as e:
-    # EXPECTED FAILURE: The function does not exist in VulnerableAuction
-        report["withdraws_vuln"]["alice_v"] = {"status": "failed", "error": str(e)}
-        if "The function 'withdraw' was not found" in str(e):
-            print("Alice withdraw Vulnerable FAILED AS EXPECTED (Function does not exist).")
-        else:
-            print("Alice withdraw Vulnerable FAILED AS EXPECTED:", e)
+        # UNEXPECTED FAILURE via Exception
+        report["withdraws_vuln"]["alice"] = {"status": "failed", "error": str(e)}
+        print("Alice withdraw FAILED AS EXPECTED (via exception):", e)
+
+
+
     # ----------------------------------------------------------------------------------------------------------------------
     # --- PHASE B: HARDENED AUCTION LIFECYCLE ---
     # ----------------------------------------------------------------------------------------------------------------------
@@ -694,10 +748,13 @@ def run_scenario(label):
     hard_id, hard_rc = new_auction_and_id(hard)
     report["hard_address"] = auctions["hard"]["address"]
     report["hard_id"] = hard_id
-    
+
     # B2) Attacker commit loop (N_ATTACK) - TARGET HARDENED (MODIFIED SECTION 6)
     commit_hashes_h = []
     accepted_h = 0
+    successful_hard_commit_bid = 0
+    successful_hard_commit_salt = None
+
     for i in range(N_ATTACK):
         salt = Web3.keccak(text=f"attack-hard-{label}-{i}")
         ATTACKER_BID = 100
@@ -705,9 +762,14 @@ def run_scenario(label):
         try:
             auction_id_hard_int = int(hard_id)
             fn2 = mal_contract.functions.forwardCommitHardened(auctions["hard"]["address"], auction_id_hard_int, ch)
-            rc2 = build_and_send_contract_tx(w3, attacker, fn2, gas=220000)
+            rc2 = build_and_send_contract_tx(w3, attacker, fn2, nonce = ATTACKER_NONCE, gas=220000)
+            ATTACKER_NONCE += 1
             commit_hashes_h.append(rc2.transactionHash.hex())
             accepted_h += 1
+            if rc2.status == 1 and successful_hard_commit_salt is None:
+                    successful_hard_commit_bid = ATTACKER_BID
+                    successful_hard_commit_salt = salt
+                    print(f"Stored first successful commit: bid={successful_hard_commit_bid}")
 
         except Exception as e_inner_tx:
             err_info = {"i": i, "err": str(e_inner_tx)}
@@ -729,7 +791,7 @@ def run_scenario(label):
         # occasional progress log
         if (i + 1) % 50 == 0:
             print(f"Attacker commits on HARDENED progress: {i+1}/{N_ATTACK}")
-            
+
     print("Attacker accepted HARDENED commits:", accepted_h)
     report["attacker_accepted_commits_h"] = accepted_h
     report["commit_tx_hashes_h"] = commit_hashes_h
@@ -746,18 +808,23 @@ def run_scenario(label):
 
     # --- Hardened Auction Malicious Reveal ---
     print("DEBUG: Malicious Revert performing reveal on HARDENED auction.")
+    PADDED_HARD_SALT = successful_hard_commit_salt.ljust(32, b'\x00')
     try:
         # Use the malicious contract's forwardReveal function
-        fnr = mal_contract.functions.forwardReveal(
-            auctions["hard"]["address"], 
-            hard_id, 
-            100,              # bidAmount
-            salt       # salt (must match the committed hash)
+        fbr = mal_contract.functions.forwardReveal(
+            auctions["hard"]["address"],
+            hard_id,
+            successful_hard_commit_bid,
+            PADDED_HARD_SALT
             )
         # The transaction must be sent by the attacker EOA
-        rcr = build_and_send_contract_tx(w3, attacker, fnr, gas=200000)
-        report.setdefault("mal_reveals_hard", []).append(short_receipt(rcr))
-        print("Malicious reveal HARDENED SUCCEEDED:", rcr.transactionHash.hex())
+        hcr = build_and_send_contract_tx(w3, attacker, fbr, nonce = ATTACKER_NONCE, gas=440000)
+        ATTACKER_NONCE += 1
+        report.setdefault("mal_reveals_hard", []).append(short_receipt(hcr))
+        if hcr.status == 1:
+            print("Malicious reveal HARDEDNED SUCCEEDED:", hcr.transactionHash.hex())
+        elif hcr.status == 0:
+            print("Malicious reveal HARDEDNED FAILED (Status 0):", hcr.transactionHash.hex())
 
     except Exception as e:
         report.setdefault("mal_reveals_hard", []).append({"status": "failed", "error": str(e)})
@@ -770,7 +837,8 @@ def run_scenario(label):
     report["hard_finalize_pages"] = []
     try:
         while True:
-            rc = build_and_send_contract_tx(w3, deployer, hard.functions.finalizePaged(hard_id), gas=400000)
+            rc = build_and_send_contract_tx(w3, deployer, hard.functions.finalizePaged(hard_id), nonce = DEPLOYER_NONCE, gas=400000)
+            DEPLOYER_NONCE += 1
             report["hard_finalize_pages"].append(short_receipt(rc))
             finalized = hard.functions.isFinalized(hard_id).call()
             print("Paged finalize processed; gasUsed:", rc.gasUsed, "finalized:", finalized)
@@ -781,39 +849,51 @@ def run_scenario(label):
         print("Error during hard finalize paged:", e)
 
     # B5) Withdraw tests on Hardened Contract 
-    
+
     report["withdraws_hard"] = {} 
-    
+
     # attempt malicious withdraw via proxy (EXPECT SUCCESS - Hardened pull is safe)
     try:
         fnw = mal_contract.functions.proxyWithdraw(auctions["hard"]["address"], hard_id)
-        rcw = build_and_send_contract_tx(w3, attacker, fnw, gas=300000)
-        # HARDENED CONTRACT: Malicious proxyWithdraw is EXPECTED TO SUCCEED (pull is safe).
-        is_success = (not isinstance(rcw, dict)) or (rcw.get('status') == 1)
-
-        if is_success:
-            report["withdraws_hard"]["malicious"] = short_receipt(rcw) if not isinstance(rcw, dict) else rcw
-            print("Malicious proxyWithdraw SUCCEEDED AS EXPECTED:", short_receipt(rcw) if not isinstance(rcw, dict) else rcw.get('txHash'))
-        else:
-            # Unexpected Failure (Status 0)
+        # The transaction must be sent by the attacker EOA
+        rcw = build_and_send_contract_tx(w3, attacker, fnw, nonce = ATTACKER_NONCE, gas=300000)
+        ATTACKER_NONCE += 1
+        # HARDENED CONTRACT: Expected result is SUCCESS (status 1) due to CEI pattern.
+        if rcw.status == 1:
+            # Actual Success (Status 1): Expected outcome (The attacker can withdraw their funds safely)
             report["withdraws_hard"]["malicious"] = rcw
-            print("Malicious proxyWithdraw FAILED UNEXPECTEDLY:", rcw)
+            print("Malicious proxyWithdraw SUCCEEDED AS EXPECTED:", rcw.transactionHash.hex())
+        elif rcw.status == 0:
+            # Unexpected Failure (Status 0): Security failure (The attacker's withdraw was griefed)
+            report["withdraws_hard"]["malicious"] = rcw
+            print("Malicious proxyWithdraw FAILED UNEXPECTEDLY (Security Failure):", rcw.transactionHash.hex())
 
     except Exception as e:
+        # UNEXPECTED FAILURE via Exception
         report["withdraws_hard"]["malicious"] = {"status": "failed", "error": str(e)}
         print("Malicious proxyWithdraw FAILED UNEXPECTEDLY (via exception):", e)
 
 
     # alice withdraw hardened (pull)
     try:
-        rca = build_and_send_contract_tx(w3, alice, hard.functions.withdraw(hard_id), gas=200000)
-        report["withdraws_hard"]["alice_h"] = short_receipt(rca) 
-        print("Alice withdraw hardened succeeded:", rca.transactionHash.hex())
+        rca = build_and_send_contract_tx(w3, alice, hard.functions.withdraw(hard_id), nonce = ALICE_NONCE, gas=200000)
+        ALICE_NONCE += 1
+
+        # HARDENED CONTRACT: Expected result is SUCCESS (status 1) as Alice's withdraw is protected.
+        if rca.status == 1:
+            # Actual Success (Status 1): Expected outcome
+            report["withdraws_hard"]["alice"] = rca
+            print("Alice withdraw SUCCEEDED AS EXPECTED:", rca.transactionHash.hex())
+        elif rca.status == 0:
+            # Unexpected Failure (Status 0): Security failure (Alice's withdraw was griefed)
+            report["withdraws_hard"]["alice"] = rca
+            print("Alice withdraw FAILED UNEXPECTEDLY (Security Failure):", rca.transactionHash.hex())
+
     except Exception as e:
-        report["withdraws_hard"]["alice_h"] = {"status": "failed", "error": str(e)} 
-        print("Alice withdraw hardened failed:", e) 
-        
-    return report # Final return
+        # UNEXPECTED FAILURE via Exception
+        report["withdraws_hard"]["alice"] = {"status": "failed", "error": str(e)} # Note: changed key from malicious to alice
+        print("Alice withdraw FAILED UNEXPECTEDLY (via exception):", e)
+        return report # Final return
 
 
 
