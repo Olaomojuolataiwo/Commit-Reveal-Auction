@@ -3,7 +3,7 @@ pragma solidity ^0.8.20;
 
 import "forge-std/Script.sol";
 import "../src/malicious_contracts/MaliciousRevert.sol";
-import "../src/malicious_contracts/MaliciousGasBurn.sol";
+import "../src/malicious_contracts/MaliciousGasExhaustion.sol";
 import "../src/malicious_contracts/MaliciousReentrant.sol";
 import "../src/malicious_contracts/MaliciousConditional.sol";
 
@@ -26,8 +26,8 @@ contract DeployMalicious is Script {
         MaliciousRevert mr = new MaliciousRevert(tokenAddress);
         console.log("Deployed MaliciousRevert at", address(mr));
 
-        MaliciousGasBurn mgb = new MaliciousGasBurn(gasburnLoops);
-        console.log("Deployed MaliciousGasBurn at", address(mgb), "loops=", gasburnLoops);
+        MaliciousGasExhaustion mgb = new MaliciousGasExhaustion(gasburnLoops);
+        console.log("Deployed MaliciousGasExhaustion at", address(mgb), "loops=", gasburnLoops);
 
         MaliciousReentrant mre = new MaliciousReentrant();
         console.log("Deployed MaliciousReentrant at", address(mre));

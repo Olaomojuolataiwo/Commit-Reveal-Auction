@@ -21,7 +21,7 @@ Usage (example):
   export MOCK_TOKEN_ADDRESS="0x..."
   # optional: supply malicious addresses or use deployed defaults
   export MAL_REVERT="0xfd3D..."
-  export MAL_GASBURN="0xc3a7..."
+  export MAL_EXHAUSTION="0xc3a7..."
   export MAL_REENTRANT="0x1B7f..."
   export MAL_CONDITIONAL="0xD454..."
   python3 scripts/GasManipulation.py
@@ -59,22 +59,22 @@ ALICE_KEY = os.environ.get("ALICE_KEY")
 MOCK_TOKEN_ADDRESS = os.environ.get("MOCK_TOKEN_ADDRESS")
 
 MAL_REVERT = os.environ.get("MAL_REVERT")
-MAL_GASBURN = os.environ.get("MAL_GASBURN")
+MAL_GASEXHAUSTION = os.environ.get("MAL_GASEXHAUSTION")
 MAL_REENTRANT = os.environ.get("MAL_REENTRANT")
 MAL_CONDITIONAL = os.environ.get("MAL_CONDITIONAL")
 
-if not (MAL_REVERT and MAL_GASBURN and MAL_REENTRANT and MAL_CONDITIONAL):
-    raise SystemExit("Set MAL_REVERT, MAL_GASBURN, MAL_REENTRANT and MAL_CONDITIONAL environment variables with deployed attacker contract addresses")
+if not (MAL_REVERT and MAL_GASEXHAUSTION and MAL_REENTRANT and MAL_CONDITIONAL):
+    raise SystemExit("Set MAL_REVERT, MAL_GASEXHAUSTION, MAL_REENTRANT and MAL_CONDITIONAL environment variables with deployed attacker contract addresses")
 
 # normalize to checksum
 MAL_REVERT  = Web3.to_checksum_address(MAL_REVERT)
-MAL_GASBURN = Web3.to_checksum_address(MAL_GASBURN)
+MAL_GASEXHAUSTION = Web3.to_checksum_address(MAL_GASEXHAUSTION)
 MAL_REENTRANT = Web3.to_checksum_address(MAL_REENTRANT)
 MAL_CONDITIONAL = Web3.to_checksum_address(MAL_CONDITIONAL)
 
 SCENARIOS = {
     "Revert": MAL_REVERT,
-    "GasBurn": MAL_GASBURN,
+    "EXHAUSTION": MAL_GASEXHAUSTION,
     "Reentrant": MAL_REENTRANT,
     "Conditional": MAL_CONDITIONAL
 }
@@ -257,7 +257,7 @@ token = w3.eth.contract(address=to_checksum(MOCK_TOKEN_ADDRESS), abi=token_abi)
 # Map scenarios -> malicious addresses
 SCENARIOS = {
     "Revert": to_checksum(MAL_REVERT),
-    "GasBurn": to_checksum(MAL_GASBURN),
+    "GasExhaustion": to_checksum(MAL_GASEXHAUSTION),
     "Reentrant": to_checksum(MAL_REENTRANT),
     "Conditional": to_checksum(MAL_CONDITIONAL)
 }
@@ -285,8 +285,8 @@ def artifact_bytecode(art):
         bc = bc.get("object") or bc.get("bytecode") or bc.get("hex")
     return bc or ""
 
-def deploy_auctions():
-    current_nonce = start_nonce
+def deploy_auctions(w3, deployer, DEPLOYER_NONCE):
+    current_nonce = DEPLOYER_NONCE 
     # deploy VulnerableAuction(token)
     vuln_bc = artifact_bytecode(vuln_art)
     vuln_contract = w3.eth.contract(abi=vuln_art["abi"], bytecode=vuln_bc)
@@ -324,12 +324,13 @@ def deploy_auctions():
             "next_nonce": current_nonce  }
 
 # newAuction helper
-def new_auction_and_id(contract):
+def new_auction_and_id(contract, current_nonce):
     tx_receipt = None
     new_id = None
     try:
         fn = contract.functions.newAuction()
         tx_receipt = build_and_send_contract_tx(w3, deployer, fn, gas=300000)
+        current_nonce += 1
         raw_id = contract.functions.auctionCounter().call()
         if isinstance(raw_id, tuple):
             new_id = int(raw_id[0])
@@ -362,14 +363,14 @@ def run_scenario(label):
     # 1) deploy both auctions
     auction_results = deploy_auctions(w3, deployer, DEPLOYER_NONCE)
     DEPLOYER_NONCE = auction_results["next_nonce"]
-    vuln = auctions_result["vuln"]["contract"]
-    hard = auctions_result["hard"]["contract"]
+    vuln = auction_results["vuln"]["contract"]
+    hard = auction_results["hard"]["contract"]
 
 
     # --- PHASE A: VULNERABLE AUCTION LIFECYCLE ---
 
     print("DEBUG: Creating new auction for", label)
-    vuln_id, vuln_rc = new_auction_and_id(vuln)
+    vuln_id, vuln_rc, DEPLOYER_NONCE = new_auction_and_id(vuln, DEPLOYER_NONCE)
     report["vuln_address"] = auctions["vuln"]["address"]
     report["vuln_id"] = vuln_id
 
@@ -613,7 +614,7 @@ def run_scenario(label):
                 "gas": 200000, "gasPrice": w3.eth.gas_price, "chainId": w3.eth.chain_id
             })
             rc = send_signed_tx(w3, alice, txc)
-            ALICE_NONCE +-= 1
+            ALICE_NONCE += 1
             if rc.status == 1:
                 print(f"Alice commit VULNERABLE SUCCEEDED UNEXPECTEDLY:", rc.transactionHash.hex())
             elif rc.status == 0:

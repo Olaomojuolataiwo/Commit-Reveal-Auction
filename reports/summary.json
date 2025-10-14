@@ -1,14 +1,14 @@
 {
   "Revert": {
-    "error": "{'code': -32000, 'message': 'already known'}"
+    "error": "HTTPSConnectionPool(host='eth-sepolia.g.alchemy.com', port=443): Max retries exceeded with url: /v2/F8X3H2cE64aIbdybBl01B (Caused by NameResolutionError(\"<urllib3.connection.HTTPSConnection object at 0x000001CDDAE368D0>: Failed to resolve 'eth-sepolia.g.alchemy.com' ([Errno 11001] getaddrinfo failed)\"))"
   },
   "GasBurn": {
-    "error": "{'code': -32000, 'message': 'already known'}"
+    "error": "HTTPSConnectionPool(host='eth-sepolia.g.alchemy.com', port=443): Max retries exceeded with url: /v2/F8X3H2cE64aIbdybBl01B (Caused by NameResolutionError(\"<urllib3.connection.HTTPSConnection object at 0x000001CDDAE4D010>: Failed to resolve 'eth-sepolia.g.alchemy.com' ([Errno 11001] getaddrinfo failed)\"))"
   },
   "Reentrant": {
-    "error": "{'code': -32000, 'message': 'already known'}"
+    "error": "HTTPSConnectionPool(host='eth-sepolia.g.alchemy.com', port=443): Max retries exceeded with url: /v2/F8X3H2cE64aIbdybBl01B (Caused by NameResolutionError(\"<urllib3.connection.HTTPSConnection object at 0x000001CDDAE36450>: Failed to resolve 'eth-sepolia.g.alchemy.com' ([Errno 11001] getaddrinfo failed)\"))"
   },
   "Conditional": {
-    "error": "{'code': -32000, 'message': 'already known'}"
+    "error": "{'code': -32000, 'message': 'replacement transaction underpriced'}"
   }
 }
