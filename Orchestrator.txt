@@ -84,7 +84,6 @@ MAX_COMMITS_PER_ADDRESS = int(os.environ.get("MAX_COMMITS_PER_ADDRESS", str(DEFA
 N_ATTACK = int(os.environ.get("N_ATTACK", str(DEFAULTS["N_ATTACK"])))
 APPROVE_BUFFER_MULT = float(os.environ.get("APPROVE_BUFFER_MULT", str(DEFAULTS["APPROVE_BUFFER_MULT"])))
 
-
 # ---------- Helpers ----------
 def find_artifact(name):
     for d in ARTIFACT_DIRS:
@@ -236,12 +235,6 @@ print("Alice:", alice.address)
 print("Token:", MOCK_TOKEN_ADDRESS)
 print("N_ATTACK:", N_ATTACK, "COMMIT_DEPOSIT:", COMMIT_DEPOSIT, "MAX_COMMITS_PER_ADDRESS:", MAX_COMMITS_PER_ADDRESS)
 
-# Global nonce trackers
-DEPLOYER_NONCE = w3.eth.get_transaction_count(deployer.address, "pending")
-ATTACKER_NONCE = w3.eth.get_transaction_count(attacker.address, "pending")
-ALICE_NONCE = w3.eth.get_transaction_count(alice.address, "pending")
-
-
 # Load artifacts
 vuln_art = load_artifact(VULN_NAME)
 hard_art = load_artifact(HARD_NAME)
@@ -374,7 +367,11 @@ def run_scenario(label):
     print("\n=== SCENARIO:", label)
     report = {"label": label, "timestamp": int(time.time()), "N_attack": N_ATTACK}
 
-    global DEPLOYER_NONCE, ATTACKER_NONCE, ALICE_NONCE
+
+    DEPLOYER_NONCE = w3.eth.get_transaction_count(deployer.address)
+    ALICE_NONCE = w3.eth.get_transaction_count(alice.address)
+    ATTACKER_NONCE = w3.eth.get_transaction_count(attacker.address)
+
 
     # 1) deploy both auctions
     auction_results = deploy_auctions(w3, deployer, DEPLOYER_NONCE)
@@ -651,7 +648,7 @@ def run_scenario(label):
 
 
         print("Waiting for commit phase to finish on Vulnerable auction...")
-        wait_for_phase_end(auction_contract, auction_id, phase="commit")
+        wait_for_phase_end(vuln, vuln_id, phase="commit")
 
         # reveal
         try:

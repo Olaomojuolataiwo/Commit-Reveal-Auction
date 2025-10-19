@@ -1,14 +1,14 @@
 {
   "Revert": {
-    "error": "HTTPSConnectionPool(host='eth-sepolia.g.alchemy.com', port=443): Max retries exceeded with url: /v2/F8X3H2cE64aIbdybBl01B (Caused by NameResolutionError(\"<urllib3.connection.HTTPSConnection object at 0x000001CDDAE368D0>: Failed to resolve 'eth-sepolia.g.alchemy.com' ([Errno 11001] getaddrinfo failed)\"))"
+    "error": "Scenario Revert failed assertions: ['hardened_finalize_failure', \"alice_withdraw_hardened_exception:build_and_send_contract_tx() missing 1 required positional argument: 'nonce'\", 'malicious_proxyWithdraw_not_found_or_failed']"
   },
-  "GasBurn": {
-    "error": "HTTPSConnectionPool(host='eth-sepolia.g.alchemy.com', port=443): Max retries exceeded with url: /v2/F8X3H2cE64aIbdybBl01B (Caused by NameResolutionError(\"<urllib3.connection.HTTPSConnection object at 0x000001CDDAE4D010>: Failed to resolve 'eth-sepolia.g.alchemy.com' ([Errno 11001] getaddrinfo failed)\"))"
+  "GasExhaustion": {
+    "error": "Scenario GasExhaustion failed assertions: ['hardened_finalize_failure', \"alice_withdraw_hardened_exception:build_and_send_contract_tx() missing 1 required positional argument: 'nonce'\", 'malicious_proxyWithdraw_not_found_or_failed']"
   },
   "Reentrant": {
-    "error": "HTTPSConnectionPool(host='eth-sepolia.g.alchemy.com', port=443): Max retries exceeded with url: /v2/F8X3H2cE64aIbdybBl01B (Caused by NameResolutionError(\"<urllib3.connection.HTTPSConnection object at 0x000001CDDAE36450>: Failed to resolve 'eth-sepolia.g.alchemy.com' ([Errno 11001] getaddrinfo failed)\"))"
+    "error": "Scenario Reentrant failed assertions: ['hardened_finalize_failure', \"alice_withdraw_hardened_exception:build_and_send_contract_tx() missing 1 required positional argument: 'nonce'\", 'malicious_proxyWithdraw_not_found_or_failed']"
   },
   "Conditional": {
-    "error": "{'code': -32000, 'message': 'replacement transaction underpriced'}"
+    "error": "'NoneType' object has no attribute 'ljust'"
   }
 }
