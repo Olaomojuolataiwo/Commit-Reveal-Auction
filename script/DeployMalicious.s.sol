@@ -23,16 +23,16 @@ contract DeployMalicious is Script {
 
         vm.startBroadcast(deployerKey);
 
-        MaliciousRevert mr = new MaliciousRevert(tokenAddress);
-        console.log("Deployed MaliciousRevert at", address(mr));
+//        MaliciousRevert mr = new MaliciousRevert(tokenAddress);
+//        console.log("Deployed MaliciousRevert at", address(mr));
 
-        MaliciousGasExhaustion mgb = new MaliciousGasExhaustion(gasburnLoops);
-        console.log("Deployed MaliciousGasExhaustion at", address(mgb), "loops=", gasburnLoops);
+//        MaliciousGasExhaustion mgb = new MaliciousGasExhaustion(gasburnLoops);
+//        console.log("Deployed MaliciousGasExhaustion at", address(mgb), "loops=", gasburnLoops);
 
-        MaliciousReentrant mre = new MaliciousReentrant();
-        console.log("Deployed MaliciousReentrant at", address(mre));
+//        MaliciousReentrant mre = new MaliciousReentrant();
+//        console.log("Deployed MaliciousReentrant at", address(mre));
 
-        MaliciousConditional mc = new MaliciousConditional(conditionalCadence);
+        MaliciousConditional mc = new MaliciousConditional(tokenAddress, conditionalCadence);
         console.log("Deployed MaliciousConditional at", address(mc), "cadence=", conditionalCadence);
 
         vm.stopBroadcast();

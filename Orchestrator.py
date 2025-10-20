@@ -4,7 +4,8 @@ GasManipulation.py
 
 Orchestrator for Commit–Reveal griefing scenarios (Sepolia).
 - Uses existing malicious contracts (addresses via env or fallback known addresses)
-- Uses provided MOCK_TOKEN_ADDRESS (ERC20) for deposits/refunds
+- Uses provided 
+- MOCK_TOKEN_ADDRESS (ERC20) for deposits/refunds
 - Deploys fresh VulnerableAuction and HardenedAuction per scenario
 - Calls malicious.approveToken(token, auction, amount) before committing
 - Runs N_ATTACK spam commits (malicious contract acting as bidder via forwarders)
@@ -51,31 +52,43 @@ DEFAULTS = {
 AUCTION_COMMIT_DURATION = 15
 AUCTION_REVEAL_DURATION = 20
 
+N_ATTACK = DEFAULTS["N_ATTACK"]
+
+# scenario configuration: set needs_spam False for reentrant
+SCENARIO_CONFIG = {
+    "Revert":      {"needs_spam": True,  "n_attack": N_ATTACK},
+    "GasExhaustion": {"needs_spam": True,  "n_attack": N_ATTACK},
+    "Reentrant":   {"needs_spam": False, "n_attack": 1},
+    "Conditional": {"needs_spam": False,  "n_attack": 1},
+}
+
 # ---------- Environment ----------
 WEB3_RPC_URL = os.environ.get("WEB3_RPC_URL")
 DEPLOYER_KEY = os.environ.get("DEPLOYER_KEY")
 ATTACKER_KEY = os.environ.get("ATTACKER_KEY")
 ALICE_KEY = os.environ.get("ALICE_KEY")
 MOCK_TOKEN_ADDRESS = os.environ.get("MOCK_TOKEN_ADDRESS")
+MALICIOUS_TOKEN = os.environ.get("MALICIOUS_TOKEN")
 
-MAL_REVERT = os.environ.get("MAL_REVERT")
-MAL_GASEXHAUSTION = os.environ.get("MAL_GASEXHAUSTION")
-MAL_REENTRANT = os.environ.get("MAL_REENTRANT")
+
+#MAL_REVERT = os.environ.get("MAL_REVERT")
+#MAL_GASEXHAUSTION = os.environ.get("MAL_GASEXHAUSTION")
+#MAL_REENTRANT = os.environ.get("MAL_REENTRANT")
 MAL_CONDITIONAL = os.environ.get("MAL_CONDITIONAL")
 
-if not (MAL_REVERT and MAL_GASEXHAUSTION and MAL_REENTRANT and MAL_CONDITIONAL):
-    raise SystemExit("Set MAL_REVERT, MAL_GASEXHAUSTION, MAL_REENTRANT and MAL_CONDITIONAL environment variables with deployed attacker contract addresses")
+#if not (MAL_REVERT and MAL_GASEXHAUSTION and MAL_REENTRANT and MAL_CONDITIONAL):
+#    raise SystemExit("Set MAL_REVERT, MAL_GASEXHAUSTION, MAL_REENTRANT and MAL_CONDITIONAL environment variables with deployed attacker contract addresses")
 
 # normalize to checksum
-MAL_REVERT  = Web3.to_checksum_address(MAL_REVERT)
-MAL_GASEXHAUSTION = Web3.to_checksum_address(MAL_GASEXHAUSTION)
-MAL_REENTRANT = Web3.to_checksum_address(MAL_REENTRANT)
+#MAL_REVERT  = Web3.to_checksum_address(MAL_REVERT)
+#MAL_GASEXHAUSTION = Web3.to_checksum_address(MAL_GASEXHAUSTION)
+#MAL_REENTRANT = Web3.to_checksum_address(MAL_REENTRANT)
 MAL_CONDITIONAL = Web3.to_checksum_address(MAL_CONDITIONAL)
 
 SCENARIOS = {
-    "Revert": MAL_REVERT,
-    "EXHAUSTION": MAL_GASEXHAUSTION,
-    "Reentrant": MAL_REENTRANT,
+#    "Revert": MAL_REVERT,
+#    "EXHAUSTION": MAL_GASEXHAUSTION,
+#    "Reentrant": MAL_REENTRANT,
     "Conditional": MAL_CONDITIONAL
 }
 
@@ -263,9 +276,9 @@ token = w3.eth.contract(address=to_checksum(MOCK_TOKEN_ADDRESS), abi=token_abi)
 
 # Map scenarios -> malicious addresses
 SCENARIOS = {
-    "Revert": to_checksum(MAL_REVERT),
-    "GasExhaustion": to_checksum(MAL_GASEXHAUSTION),
-    "Reentrant": to_checksum(MAL_REENTRANT),
+#    "Revert": to_checksum(MAL_REVERT),
+#    "GasExhaustion": to_checksum(MAL_GASEXHAUSTION),
+#    "Reentrant": to_checksum(MAL_REENTRANT),
     "Conditional": to_checksum(MAL_CONDITIONAL)
 }
 
@@ -292,12 +305,22 @@ def artifact_bytecode(art):
         bc = bc.get("object") or bc.get("bytecode") or bc.get("hex")
     return bc or ""
 
-def deploy_auctions(w3, deployer, DEPLOYER_NONCE):
+def deploy_auctions(w3, deployer, DEPLOYER_NONCE, label):
     current_nonce = DEPLOYER_NONCE 
+    token_for_deploy = None
+    if label and label.lower() == "conditional":
+        # prefer MALICIOUS_TOKEN env var (set after you deployed the token)
+        env_token = os.environ.get("MALICIOUS_TOKEN") or os.environ.get("MAL_TOKEN_ADDRESS") 
+        if not env_token:
+            raise RuntimeError("Conditional scenario requires MALICIOUS_TOKEN env var (or MAL_TOKEN_ADDRESS/MOCK_TOKEN_ADDRESS)")
+        token_for_deploy = Web3.to_checksum_address(env_token)
+        print("deploy_auctions: using MALICIOUS token for Conditional scenario:", token_for_deploy)
+    else:
+        token_for_deploy = Web3.to_checksum_address(MOCK_TOKEN_ADDRESS)
     # deploy VulnerableAuction(token)
     vuln_bc = artifact_bytecode(vuln_art)
     vuln_contract = w3.eth.contract(abi=vuln_art["abi"], bytecode=vuln_bc)
-    tx1 = vuln_contract.constructor(MOCK_TOKEN_ADDRESS, AUCTION_COMMIT_DURATION, AUCTION_REVEAL_DURATION).build_transaction({
+    tx1 = vuln_contract.constructor(token_for_deploy, AUCTION_COMMIT_DURATION, AUCTION_REVEAL_DURATION).build_transaction({
         "from": deployer.address,
         "nonce": current_nonce,
         "gas": 2_500_000,
@@ -313,7 +336,7 @@ def deploy_auctions(w3, deployer, DEPLOYER_NONCE):
     # deploy HardenedAuction(token, commitDeposit, maxCommitsPerAddress)
     hard_bc = artifact_bytecode(hard_art)
     hard_contract = w3.eth.contract(abi=hard_art["abi"], bytecode=hard_bc)
-    tx2 = hard_contract.constructor(MOCK_TOKEN_ADDRESS, COMMIT_DEPOSIT, MAX_COMMITS_PER_ADDRESS, AUCTION_COMMIT_DURATION, AUCTION_REVEAL_DURATION).build_transaction({
+    tx2 = hard_contract.constructor(token_for_deploy, COMMIT_DEPOSIT, MAX_COMMITS_PER_ADDRESS, AUCTION_COMMIT_DURATION, AUCTION_REVEAL_DURATION).build_transaction({
         "from": deployer.address,
         "nonce": current_nonce,
         "gas": 3_000_000,
@@ -377,7 +400,7 @@ def run_scenario(label):
     global DEPLOYER_NONCE, ATTACKER_NONCE, ALICE_NONCE
 
     # 1) deploy both auctions
-    auction_results = deploy_auctions(w3, deployer, DEPLOYER_NONCE)
+    auction_results = deploy_auctions(w3, deployer, DEPLOYER_NONCE, label)
     DEPLOYER_NONCE = auction_results["next_nonce"]
     vuln = auction_results["vuln"]["contract"]
     hard = auction_results["hard"]["contract"]
@@ -404,9 +427,13 @@ def run_scenario(label):
     report["malicious_abi_fns"] = fn_names
 
     # 3) fund malicious contract with tokens if deployer has tokens
-
     # Define a safe minimum funding amount (1000 tokens)
     SAFE_FUNDING_TARGET = 1000 
+
+    if label.lower() == "conditional":
+        if not MALICIOUS_TOKEN:
+            raise RuntimeError("Conditional scenario requires MALICIOUS_TOKEN env var set to the deployed token address")
+        print("Conditional scenario: using malicious token:", MALICIOUS_TOKEN)
 
     # --- Funding / balances ---
     try:
@@ -478,21 +505,21 @@ def run_scenario(label):
                 print(f"Calling approveToken on mal for {target_label} amount={approve_amt}")
                 if approve_abi is None:
                     # no ABI entry found — attempt the 3-arg form (and let it fail to surface)
-                    fn = mal_contract.functions.approveToken(MOCK_TOKEN_ADDRESS, target, approve_amt)
+                    fn = mal_contract.functions.approveToken(token_for_deploy, target, approve_amt)
                 else:
                     inputs = approve_abi.get("inputs", [])
                     if len(inputs) == 3:
-                        fn = mal_contract.functions.approveToken(MOCK_TOKEN_ADDRESS, target, approve_amt)
+                        fn = mal_contract.functions.approveToken(token_for_deploy, target, approve_amt)
                     elif len(inputs) == 2:
                         # unknown which two — try (token, amount) first
                         try:
-                            fn = mal_contract.functions.approveToken(MOCK_TOKEN_ADDRESS, approve_amt)
+                            fn = mal_contract.functions.approveToken(token_for_deploy, approve_amt)
                         except Exception:
                             # fallback to (token, spender) if second param is address
-                            fn = mal_contract.functions.approveToken(MOCK_TOKEN_ADDRESS, target)
+                            fn = mal_contract.functions.approveToken(token_for_deploy, target)
                     elif len(inputs) == 1:
                         # single-arg approve(token)
-                        fn = mal_contract.functions.approveToken(MOCK_TOKEN_ADDRESS)
+                        fn = mal_contract.functions.approveToken(token_for_deploy)
                     else:
                         raise RuntimeError(f"Unexpected approveToken ABI inputs: {inputs}")
 
@@ -543,13 +570,24 @@ def run_scenario(label):
             report.setdefault("funding_errors", []).append(str(e))
 
     # 6) Attacker commit loop (N_ATTACK)
+    cfg = SCENARIO_CONFIG.get(label, {"needs_spam": True, "n_attack": N_ATTACK})
+    scenario_n_attack = cfg.get("n_attack", N_ATTACK)
+    needs_spam = cfg.get("needs_spam", True)
+    attack_commit_count = int(cfg.get("n_attack", DEFAULTS["N_ATTACK"]))
+
     commit_hashes = []
     accepted = 0
+
+    if not needs_spam:
+        print(f"Scenario {label} requests no spam commits (needs_spam=False). Skipping attacker spam loop.")
+    else:
+        print(f"Running attacker spam: {scenario_n_attack} commits for scenario {label}")
+
     # Variables to store the successful commit parameters
     successful_commit_bid = 0
     successful_commit_salt = None
 
-    for i in range(N_ATTACK):
+    for i in range(attack_commit_count):
         salt = Web3.keccak(text=f"attack-{label}-{i}")
         ATTACKER_BID = 100
         ch = make_commit_hash(ATTACKER_BID, salt)
@@ -576,7 +614,7 @@ def run_scenario(label):
                 ATTACKER_NONCE += 1
                 commit_hashes.append(rc2.transactionHash.hex())
                 accepted += 1
-                if rc.status == 1 and successful_commit_salt is None:
+                if rc2.status == 1 and successful_commit_salt is None:
                     successful_commit_bid = ATTACKER_BID
                     successful_commit_salt = salt
                     print(f"Stored first successful commit: bid={successful_commit_bid}")
@@ -602,7 +640,7 @@ def run_scenario(label):
 
         # occasional progress log
         if (i + 1) % 50 == 0:
-            print(f"Attacker commits progress: {i+1}/{N_ATTACK}")
+            print(f"Attacker commits progress: {i+1}/{attack_commit_count}")
 
     print("Attacker accepted commits:", accepted)
     report["attacker_accepted_commits"] = accepted
@@ -777,12 +815,17 @@ def run_scenario(label):
     report["hard_id"] = hard_id
 
     # B2) Attacker commit loop (N_ATTACK) - TARGET HARDENED (MODIFIED SECTION 6)
+    cfg = SCENARIO_CONFIG.get(label, {"needs_spam": True, "n_attack": N_ATTACK})
+    scenario_n_attack = cfg.get("n_attack", N_ATTACK)
+    needs_spam = cfg.get("needs_spam", True)
+    attack_commit_count = int(cfg.get("n_attack", DEFAULTS["N_ATTACK"]))
+
     commit_hashes_h = []
     accepted_h = 0
     successful_hard_commit_bid = 0
     successful_hard_commit_salt = None
 
-    for i in range(N_ATTACK):
+    for i in range(attack_commit_count):
         salt = f"attack-hard-{label}-{i}".encode('utf-8')
         ATTACKER_BID = 100
         ch = make_commit_hard_hash(w3, ATTACKER_BID, salt)
@@ -820,7 +863,7 @@ def run_scenario(label):
 
         # occasional progress log
         if (i + 1) % 50 == 0:
-            print(f"Attacker commits on HARDENED progress: {i+1}/{N_ATTACK}")
+            print(f"Attacker commits on HARDENED progress: {i+1}/{attack_commit_count}")
 
     print("Attacker accepted HARDENED commits:", accepted_h)
     report["attacker_accepted_commits_h"] = accepted_h
@@ -892,11 +935,11 @@ def run_scenario(label):
         if rcw.status == 1:
             # Actual Success (Status 1): Expected outcome (The attacker can withdraw their funds safely)
             report["withdraws_hard"]["malicious"] = rcw
-            print("Malicious proxyWithdraw SUCCEEDED AS EXPECTED:", rcw.transactionHash.hex())
+            print("Malicious proxyWithdraw SUCCEEDED UNEXPECTEDLY:", rcw.transactionHash.hex())
         elif rcw.status == 0:
             # Unexpected Failure (Status 0): Security failure (The attacker's withdraw was griefed)
             report["withdraws_hard"]["malicious"] = rcw
-            print("Malicious proxyWithdraw FAILED UNEXPECTEDLY (Security Failure):", rcw.transactionHash.hex())
+            print("Malicious proxyWithdraw FAILED AS EXPECTED:", rcw.transactionHash.hex())
 
     except Exception as e:
         # UNEXPECTED FAILURE via Exception
@@ -931,11 +974,23 @@ def run_scenario(label):
     assertions = {"passed": [], "failed": []}
 
     # a) Hardened finalize should exist and be successful
-    hardened_ok = "hardened_finalize_last" in report and report["hardened_finalize_last"].get("status", 1) == 1
-    if hardened_ok:
-        assertions["passed"].append("hardened_finalize_success")
+    if "hard_finalize_pages" in report and len(report["hard_finalize_pages"]) > 0:
+        # take the last page result
+        last_page = report["hard_finalize_pages"][-1]
+        finalized_status = 0
+        try:
+            finalized_status = hard.functions.isFinalized(hard_id).call()
+        except Exception as e:
+            print("Could not check isFinalized:", e)
+        # pass if last finalize tx succeeded OR contract now reports finalized = True
+        if last_page.get("status", 0) == 1 or finalized_status:
+            assertions["passed"].append("hardened_finalize_success")
+            # record an explicit reference for traceability
+            report["hardened_finalize_last"] = last_page
+        else:
+            assertions["failed"].append("hardened_finalize_failure")
     else:
-        assertions["failed"].append("hardened_finalize_failure")
+        assertions["failed"].append("hardened_finalize_not_executed")
 
     # b) Vulnerable finalize should NOT have clean success in presence of spam (either failed or gas spike)
     vuln_ok_obj = report.get("vulnerable_finalize")
