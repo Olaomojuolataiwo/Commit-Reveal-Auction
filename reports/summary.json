@@ -1,14 +1,14 @@
 {
   "Revert": {
-    "error": "'Revert'"
+    "error": "Scenario Revert failed assertions: [\"alice_withdraw_hardened_exception:build_and_send_contract_tx() missing 1 required positional argument: 'nonce'\", 'malicious_proxyWithdraw_not_found_or_failed']"
   },
   "GasExhaustion": {
-    "error": "'GasExhaustion'"
+    "error": "Scenario GasExhaustion failed assertions: [\"alice_withdraw_hardened_exception:build_and_send_contract_tx() missing 1 required positional argument: 'nonce'\", 'malicious_proxyWithdraw_not_found_or_failed']"
   },
   "Reentrant": {
-    "error": "'Reentrant'"
+    "error": "Scenario Reentrant failed assertions: [\"alice_withdraw_hardened_exception:build_and_send_contract_tx() missing 1 required positional argument: 'nonce'\", 'malicious_proxyWithdraw_not_found_or_failed']"
   },
   "Conditional": {
-    "error": "'NoneType' object has no attribute 'ljust'"
+    "error": "Scenario Conditional failed assertions: [\"alice_withdraw_hardened_exception:build_and_send_contract_tx() missing 1 required positional argument: 'nonce'\", 'malicious_proxyWithdraw_not_found_or_failed']"
   }
 }

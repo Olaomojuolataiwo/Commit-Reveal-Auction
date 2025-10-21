@@ -1,42 +1,38 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.20;
 
-/// @title MaliciousConditional
-/// @notice Acts as a bidder forwarder and reverts on every N-th received call (default every 3rd).
+/// @dev Minimal ERC20 interface used by the forwarder to approve tokens
 
 import "src/utils/ApproveHelper.sol";
-import "../utils/IAuctions.sol";
+import "src/utils/IAuctions.sol";
 
-contract MaliciousConditional is ApproveHelper {
-    uint256 public calls;
-    uint256 public revertEvery; // e.g. 3 => revert every 3rd call
-    address public token;       // ERC20 token used for deposits
+/// @title MaliciousRevert
+/// @notice Acts as a bidder contract (forwarder) but reverts on any incoming ETH.
+/// Useful to grief push-based payouts or to assert that pull-payments are required.
 
-    constructor(address _token, uint256 _revertEvery) {
-        require(_revertEvery > 0, "revertEvery>0");
-        require(_token != address(0), "token=0");
-        token = _token;
-        revertEvery = _revertEvery;
-        calls = 0;
+contract MaliciousRevert is ApproveHelper{
+    address public immutable token; // ERC20 token used for deposits/refunds
+
+    constructor(address tokenAddress) {
+        require(tokenAddress != address(0), "token required");
+        token = tokenAddress;
     }
 
-    /// @notice Conditional revert behavior: increments call count and reverts on the configured cadence.
+    /// @notice Always revert on receive to simulate a malicious recipient that refuses funds.
     receive() external payable {
-        calls += 1;
-        if (calls % revertEvery == 0) {
-            revert("MaliciousConditional: reverting on cadence");
-        }
-        // otherwise accept funds (no-op)
+        revert("MaliciousRevert: I refuse funds");
     }
 
     // -------------------------
-    // Forwarding helpers (controller EOA calls these so this contract is msg.sender on auction)
+    // Forwarding helpers
     // -------------------------
 
-    /// Allow the controller EOA to ask this contract to approve a spender for `amount` tokens.
-    /// The ERC20 sees the approval coming from THIS contract (so approve sets allowance[thisContract][spender]).
-  function forwardCommitVulnerable(address auction, uint256 auctionId, bytes32 commitHash, uint256 depositAmount) external {
-        // Approve the auction to pull depositAmount from this contract.
+    /// @notice Forward a commit to a VulnerableAuction variant that expects a deposit param.
+    /// It first approves the auction to pull `depositAmount` tokens from this contract,
+    /// then calls the auction.commit(...) so that the auction sees `msg.sender == address(this)`.
+    /// The controller EOA should ensure this contract has sufficient token balance before calling.
+    function forwardCommitVulnerable(address auction, uint256 auctionId, bytes32 commitHash, uint256 depositAmount) external {
+        // Approve the auction to pull depositAmount from this contract
         require(IERC20Minimal(token).approve(auction, depositAmount), "approve failed");
         // Call the vulnerable commit signature: commit(auctionId, commitHash, depositAmount)
         IVulnerableAuction(auction).commit(auctionId, commitHash, depositAmount);

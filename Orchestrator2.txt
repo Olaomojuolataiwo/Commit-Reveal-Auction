@@ -71,26 +71,26 @@ MOCK_TOKEN_ADDRESS = os.environ.get("MOCK_TOKEN_ADDRESS")
 MALICIOUS_TOKEN = os.environ.get("MALICIOUS_TOKEN")
 
 
-MAL_REVERT = os.environ.get("MAL_REVERT")
-MAL_GASEXHAUSTION = os.environ.get("MAL_GASEXHAUSTION")
-MAL_REENTRANT = os.environ.get("MAL_REENTRANT")
+#MAL_REVERT = os.environ.get("MAL_REVERT")
+#MAL_GASEXHAUSTION = os.environ.get("MAL_GASEXHAUSTION")
+#MAL_REENTRANT = os.environ.get("MAL_REENTRANT")
 MAL_CONDITIONAL = os.environ.get("MAL_CONDITIONAL")
 CURRENT_SCENARIO_TOKEN_ADDRESS = MOCK_TOKEN_ADDRESS
 
 
-if not (MAL_REVERT and MAL_GASEXHAUSTION and MAL_REENTRANT and MAL_CONDITIONAL):
-    raise SystemExit("Set MAL_REVERT, MAL_GASEXHAUSTION, MAL_REENTRANT and MAL_CONDITIONAL environment variables with deployed attacker contract addresses")
+#if not (MAL_REVERT and MAL_GASEXHAUSTION and MAL_REENTRANT and MAL_CONDITIONAL):
+#    raise SystemExit("Set MAL_REVERT, MAL_GASEXHAUSTION, MAL_REENTRANT and MAL_CONDITIONAL environment variables with deployed attacker contract addresses")
 
 # normalize to checksum
-MAL_REVERT  = Web3.to_checksum_address(MAL_REVERT)
-MAL_GASEXHAUSTION = Web3.to_checksum_address(MAL_GASEXHAUSTION)
-MAL_REENTRANT = Web3.to_checksum_address(MAL_REENTRANT)
+#MAL_REVERT  = Web3.to_checksum_address(MAL_REVERT)
+#MAL_GASEXHAUSTION = Web3.to_checksum_address(MAL_GASEXHAUSTION)
+#MAL_REENTRANT = Web3.to_checksum_address(MAL_REENTRANT)
 MAL_CONDITIONAL = Web3.to_checksum_address(MAL_CONDITIONAL)
 
 SCENARIOS = {
-    "Revert": MAL_REVERT,
-    "EXHAUSTION": MAL_GASEXHAUSTION,
-    "Reentrant": MAL_REENTRANT,
+#    "Revert": MAL_REVERT,
+#    "EXHAUSTION": MAL_GASEXHAUSTION,
+#    "Reentrant": MAL_REENTRANT,
     "Conditional": MAL_CONDITIONAL
 }
 
@@ -278,9 +278,9 @@ token = w3.eth.contract(address=to_checksum(MOCK_TOKEN_ADDRESS), abi=token_abi)
 
 # Map scenarios -> malicious addresses
 SCENARIOS = {
-    "Revert": to_checksum(MAL_REVERT),
-    "GasExhaustion": to_checksum(MAL_GASEXHAUSTION),
-    "Reentrant": to_checksum(MAL_REENTRANT),
+#    "Revert": to_checksum(MAL_REVERT),
+#    "GasExhaustion": to_checksum(MAL_GASEXHAUSTION),
+#    "Reentrant": to_checksum(MAL_REENTRANT),
     "Conditional": to_checksum(MAL_CONDITIONAL)
 }
 
@@ -410,12 +410,6 @@ def run_scenario(label):
         CURRENT_SCENARIO_TOKEN_ADDRESS = MOCK_TOKEN_ADDRESS
         print("SCENARIO SETUP: Using MOCK_TOKEN_ADDRESS for", label, "scenario:", CURRENT_SCENARIO_TOKEN_ADDRESS)
 
-    # --- Re-initialize the global 'token' contract object ---
-    # Note: token_abi must be available in this scope (usually defined globally)
-    token = w3.eth.contract(address=to_checksum(CURRENT_SCENARIO_TOKEN_ADDRESS), abi=token_abi)
-    print(f"Global 'token' contract object re-initialized to: {CURRENT_SCENARIO_TOKEN_ADDRESS}")
-
-
     # 1) deploy both auctions
     auction_results = deploy_auctions(w3, deployer, DEPLOYER_NONCE, label)
     DEPLOYER_NONCE = auction_results["next_nonce"]
@@ -523,7 +517,7 @@ def run_scenario(label):
                 if label == "Conditional":
                     # MaliciousConditional (2-arg signature): approveToken(spender, amount)
                     # This bypasses the unreliable ABI check and forces the correct signature.
-                    fn = mal_contract.functions.approveToken(CURRENT_SCENARIO_TOKEN_ADDRESS, target, approve_amt)
+                    fn = mal_contract.functions.approveToken(target, approve_amt)
                 else:
                     # All other scenarios (Revert, Gas, Reentrant) require 3 args:
                     # approveToken(tokenAddress, spender, amount). This is correct regardless of ABI load status.
@@ -602,7 +596,7 @@ def run_scenario(label):
             if "forwardCommitVulnerable" in fn_names:
                 auction_id_int = int(vuln_id)
                 fn = mal_contract.functions.forwardCommitVulnerable(auction_results["vuln"]["address"], auction_id_int, ch, COMMIT_DEPOSIT)
-                rc = build_and_send_contract_tx(w3, attacker, fn, nonce=ATTACKER_NONCE, gas=520000)
+                rc = build_and_send_contract_tx(w3, attacker, fn, nonce=ATTACKER_NONCE, gas=220000)
                 ATTACKER_NONCE += 1
                 commit_hashes.append(rc.transactionHash.hex())
                 accepted += 1
@@ -678,7 +672,7 @@ def run_scenario(label):
 
             txc = fn_commit.build_transaction({
                 "from": alice.address, "nonce": ALICE_NONCE,
-                "gas": 500000, "gasPrice": w3.eth.gas_price, "chainId": w3.eth.chain_id
+                "gas": 200000, "gasPrice": w3.eth.gas_price, "chainId": w3.eth.chain_id
             })
             rc = send_signed_tx(w3, alice, txc)
             ALICE_NONCE += 1
