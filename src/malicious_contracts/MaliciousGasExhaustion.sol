@@ -26,31 +26,36 @@ contract MaliciousGasExhaustion is ApproveHelper {
             uint256 x = i;
             x = x * (i + 1) / (i + 2);
             // write to a storage-free variable prevents compiler from optimizing out completely
-            dummy += x;  
+            dummy += x;
         }
     }
 
     // -------------------------
     // Forwarding helpers (controller EOA calls these, paying gas)
     // -------------------------
-    function forwardCommitVulnerable(address auction, uint256 auctionId, bytes32 commitHash, uint256 depositAmount) external {
+    function forwardCommitVulnerable(address auction, uint256 auctionId, bytes32 commitHash, uint256 depositAmount)
+        external
+    {
         // call vulnerable signature: commit(uint256,bytes32,uint256)
-        (bool ok, ) = auction.call(abi.encodeWithSignature("commit(uint256,bytes32,uint256)", auctionId, commitHash, depositAmount));
+        (bool ok,) = auction.call(
+            abi.encodeWithSignature("commit(uint256,bytes32,uint256)", auctionId, commitHash, depositAmount)
+        );
         require(ok, "forwardCommitVulnerable failed");
     }
 
     function forwardCommitHardened(address auction, uint256 auctionId, bytes32 commitHash) external {
-        (bool ok, ) = auction.call(abi.encodeWithSignature("commit(uint256,bytes32)", auctionId, commitHash));
+        (bool ok,) = auction.call(abi.encodeWithSignature("commit(uint256,bytes32)", auctionId, commitHash));
         require(ok, "forwardCommitHardened failed");
     }
 
     function forwardReveal(address auction, uint256 auctionId, uint256 bidAmount, bytes32 salt) external {
-        (bool ok, ) = auction.call(abi.encodeWithSignature("reveal(uint256,uint256,bytes32)", auctionId, bidAmount, salt));
+        (bool ok,) =
+            auction.call(abi.encodeWithSignature("reveal(uint256,uint256,bytes32)", auctionId, bidAmount, salt));
         require(ok, "forwardReveal failed");
     }
 
     function proxyWithdraw(address auction, uint256 auctionId) external {
-        (bool ok, ) = auction.call(abi.encodeWithSignature("withdraw(uint256)", auctionId));
+        (bool ok,) = auction.call(abi.encodeWithSignature("withdraw(uint256)", auctionId));
         require(ok, "proxyWithdraw failed");
     }
 }

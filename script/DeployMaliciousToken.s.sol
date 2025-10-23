@@ -16,7 +16,7 @@ contract DeployMaliciousToken is Script {
 
         // numeric fallbacks
         uint256 initialSupply = uint256(vm.envOr("MAL_TOKEN_SUPPLY", uint256(1_000_000 ether)));
-        uint256 revertEvery   = uint256(vm.envOr("MAL_TOKEN_REVERT_EVERY", uint256(2)));
+        uint256 revertEvery = uint256(vm.envOr("MAL_TOKEN_REVERT_EVERY", uint256(2)));
 
         // watch address (optional)
         address watch = address(0);
@@ -29,13 +29,7 @@ contract DeployMaliciousToken is Script {
 
         vm.startBroadcast(deployerKey);
 
-        MaliciousToken token = new MaliciousToken(
-            name,
-            symbol,
-            initialSupply,
-            watch,
-            revertEvery
-        );
+        MaliciousToken token = new MaliciousToken(name, symbol, initialSupply, watch, revertEvery);
 
         console.log("Deployed MaliciousToken at", address(token));
         console.log(" name:", name);

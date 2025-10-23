@@ -61,32 +61,42 @@ contract VulnerableAuction {
     }
 
     modifier onlyDuringCommit(uint256 auctionId) {
-    require(block.number <= auctions[auctionId].commitEndBlock, "not during commit phase");
-    _;
+        require(block.number <= auctions[auctionId].commitEndBlock, "not during commit phase");
+        _;
     }
 
     modifier onlyDuringReveal(uint256 auctionId) {
-    require(block.number > auctions[auctionId].commitEndBlock && block.number <= auctions[auctionId].revealEndBlock, "not during reveal phase");
-    _;
+        require(
+            block.number > auctions[auctionId].commitEndBlock && block.number <= auctions[auctionId].revealEndBlock,
+            "not during reveal phase"
+        );
+        _;
     }
 
     modifier onlyAfterReveal(uint256 auctionId) {
-    require(block.number > auctions[auctionId].revealEndBlock, "reveal not finished");
-    _;
+        require(block.number > auctions[auctionId].revealEndBlock, "reveal not finished");
+        _;
     }
-
-
 
     /// @notice Commit with an optional ERC20 deposit amount parameter (vulnerable allows many commits per address)
     /// @dev This version keeps a deposit parameter to easily craft test cases; in real deployment you'd fix this
-    function commit(uint256 auctionId, bytes32 commitHash, uint256 depositAmount) external onlyDuringCommit(auctionId) {
+    function commit(uint256 auctionId, bytes32 commitHash, uint256 depositAmount)
+        external
+        onlyDuringCommit(auctionId)
+    {
         // if deposit is non-zero, pull ERC20 from sender
         if (depositAmount > 0) {
             require(token.transferFrom(msg.sender, address(this), depositAmount), "deposit transferFrom failed");
         }
         AuctionData storage a = auctions[auctionId];
-        a.commits.push(Commit({ bidder: msg.sender, commitHash: commitHash, commitEndBlock: a.commitEndBlock,
-    revealEndBlock: a.revealEndBlock }));
+        a.commits.push(
+            Commit({
+                bidder: msg.sender,
+                commitHash: commitHash,
+                commitEndBlock: a.commitEndBlock,
+                revealEndBlock: a.revealEndBlock
+            })
+        );
         emit CommitCreated(auctionId, msg.sender);
     }
 
@@ -148,6 +158,7 @@ contract VulnerableAuction {
         return auctions[auctionId].revealed[who];
     }
     /// @notice Getter for per-auction commit end block
+
     function getCommitEndBlock(uint256 auctionId) external view returns (uint256) {
         return auctions[auctionId].commitEndBlock;
     }
@@ -156,6 +167,4 @@ contract VulnerableAuction {
     function getRevealEndBlock(uint256 auctionId) external view returns (uint256) {
         return auctions[auctionId].revealEndBlock;
     }
-
-
 }

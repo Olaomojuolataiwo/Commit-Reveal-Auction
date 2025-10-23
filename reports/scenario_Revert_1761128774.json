@@ -1,0 +1,193 @@
+{
+  "label": "Revert",
+  "timestamp": 1761127701,
+  "N_attack": 15,
+  "vuln_address": "0x426a87e5C316009e4B67a4058c72ad3D16865371",
+  "vuln_id": 1,
+  "malicious_address": "0xF6e7F84d9cee738ec59c08B7a7260152C236813a",
+  "malicious_abi_fns": [
+    "approveToken",
+    "forwardCommitHardened",
+    "forwardCommitVulnerable",
+    "forwardReveal",
+    "proxyWithdraw",
+    "token"
+  ],
+  "balances_before": {
+    "deployer_token": 977727999999999999988490,
+    "malicious_token": 982
+  },
+  "funding": [
+    {
+      "txHash": "0x6779971d8298477ca81ead9cbbad18063fdd5b7f0dcb5c7433c8dead38de4a1d",
+      "gasUsed": 35017,
+      "status": 1,
+      "blockNumber": 9465131
+    }
+  ],
+  "mal_approvals": [
+    {
+      "txHash": "0x7e67f1dc02f4ed566172e01cc83f89f5ceb4694a88ccbf45c460abdc91fa909a",
+      "gasUsed": 50872,
+      "status": 1,
+      "blockNumber": 9465132,
+      "target": "vuln"
+    },
+    {
+      "txHash": "0x3d80c3dce087043b81c1651b445962ff52fb93ecae4be4308eee3d3707f4c8c8",
+      "gasUsed": 50884,
+      "status": 1,
+      "blockNumber": 9465133,
+      "target": "hard"
+    }
+  ],
+  "attacker_accepted_commits": 12,
+  "commit_tx_hashes": [
+    "0x937014c0e4373a6b999eef4d7539aeee8150da464872e300b041fdd7850d5699",
+    "0x0c6d5c3cd56d0f30d343545d494b037e805559235a3009393d01bd2514b9ebf7",
+    "0xe1812a7137f1bc317577733d5f0deee8e33c40afb61df29fde34bd7268f3e174",
+    "0xca194c2cc015e2c723ec621963c71dcb9eba90aaefa7160770370e2f75053630",
+    "0xf3a5528b3e328d97e3e0daaf040150f46c85cb8d0680487ac3e504b57de53f4c",
+    "0x4c78a8af97022ed75087af47f053739072e91a9103960ba6752eb62cab457b58",
+    "0xb6444e440740b57f38aacc746183770b8c1518dc6b52e4a89a863f9e39c1c6cd",
+    "0xee1bad76e747451e09745cdf64e6faf7b64d3349c3b05fd14699aa13f71e3e6c",
+    "0xc9ed3119660c3d86bf0021be0bfc92433392a02023aaf7ed24735449afb9db4a",
+    "0xc0d1bb1d7ac54852c6ef6da349113ee44aa8308c21305afe16213326416302cb",
+    "0xbd10c6e8d5d35ea3cfa925532c2273ae6aeef360bb5659e3ae66431fd22a3cdb",
+    "0xb7461923b4870eb4481a72fd3f0c3d13a5935d7ff434d69debd67b5e222aa7ce",
+    "0xd79a30fc4ce0dc2b79b3b889c6dfeb7c36c89a042f62e88d0135a0abeb9a5be5",
+    "0xedc5449a70edd2ef1867b830a86c0d8388079063dacb6373e60e65df17fb7a4a",
+    "0x0eee80c794366e313705cef44102b86e28bea6339181df94897ab7d58cff46e3"
+  ],
+  "alice_commits": [
+    {
+      "target": "0x8207b1ffF006B8529B22DD46e4Cb4aC8436A105f",
+      "receipt": {
+        "txHash": "0x67d176aceee82679e67c22327e70f7c467c4f7c43671d6688a20f744081b6f6f",
+        "gasUsed": 24482,
+        "status": 0,
+        "blockNumber": 9465151
+      }
+    },
+    {
+      "target": "0x8207b1ffF006B8529B22DD46e4Cb4aC8436A105f",
+      "receipt": {
+        "txHash": "0xbd1508e9572cc9c9f8898290e67e142461cbdcba0be8db81e727c140e2c2ff43",
+        "gasUsed": 143987,
+        "status": 1,
+        "blockNumber": 9465178
+      }
+    }
+  ],
+  "mal_reveals_vuln": [
+    {
+      "txHash": "0x053e16e4c92121f146a5728b70b50c3a9f069ed54ff99137e7d79c34d5f4487e",
+      "gasUsed": 61085,
+      "status": 1,
+      "blockNumber": 9465152
+    }
+  ],
+  "finalizes": [
+    {
+      "target": "vuln",
+      "receipt": {
+        "txHash": "0x6779971d8298477ca81ead9cbbad18063fdd5b7f0dcb5c7433c8dead38de4a1d",
+        "gasUsed": 35017,
+        "status": 1,
+        "blockNumber": 9465131
+      }
+    },
+    {
+      "target": "hard",
+      "receipt": {
+        "txHash": "0x6779971d8298477ca81ead9cbbad18063fdd5b7f0dcb5c7433c8dead38de4a1d",
+        "gasUsed": 35017,
+        "status": 1,
+        "blockNumber": 9465131
+      }
+    }
+  ],
+  "withdraws_vuln": {},
+  "mal_withdraws": [
+    {
+      "target": "vuln",
+      "receipt": {
+        "txHash": "0x3c1851750ebb3babe2853055e4dbe5ec4cd16686c2eff694d1970c989d2a2778",
+        "gasUsed": 25064,
+        "status": 0,
+        "blockNumber": 9465168
+      }
+    },
+    {
+      "target": "hard",
+      "receipt": {
+        "txHash": "0x88a0ac559702bd6cb4c9f1f285419e9a81bd538bb6880e10a224d4d54fdfb941",
+        "gasUsed": 27516,
+        "status": 0,
+        "blockNumber": 9465207
+      }
+    }
+  ],
+  "alice_withdraw_errors": [
+    {
+      "target": "vuln",
+      "err": "(\"The function 'withdraw' was not found in this contract's abi.\", ' Are you sure you provided the correct contract abi?')"
+    }
+  ],
+  "hard_address": "0x8207b1ffF006B8529B22DD46e4Cb4aC8436A105f",
+  "hard_id": 1,
+  "attacker_accepted_commits_h": 5,
+  "commit_tx_hashes_h": [
+    "0xb851503809f9237746c17c15841e2a6636c717b4ae263a3baa2df630bbed74ac",
+    "0x04cbff083ef4d8206d82041592c334e85714e20c975cf39a4ccc4352545f2896",
+    "0x4a5ac2f057abfb10008378fc15da4bd5879a252dcc881c3ad2ff2d3d5839a8d7",
+    "0x2aa8796e354a00d16e85d43789827e5f0c6b0ec955b7de85ee4059faca88d1e0",
+    "0x36d9e4a003a9e56c82e3569d77c75da6e43cc0070cd003c3dde2599b00541bf2"
+  ],
+  "alice_h": {
+    "status": "failed",
+    "stage": "commit/reveal",
+    "raw": {
+      "commit_hash": "0x1f33ecff9a7ef49d00e363c2c04d60870fb73d028f8b76a4a509a9f370bd4e05",
+      "bid": 1,
+      "salt": "0x98cf9f3c4b1ddbd9d6c5dc6f7bb0af60fea1ad2549a210483b7971843a2d580a"
+    }
+  },
+  "hard_finalize_pages": [
+    {
+      "txHash": "0xa6c68bd20a456ec2528fe3afff1a5c3580b2b7ad5db414eabab6e016e07ab0a0",
+      "gasUsed": 74368,
+      "status": 1,
+      "blockNumber": 9465206
+    }
+  ],
+  "withdraws_hard": {},
+  "alice_withdraws": [
+    {
+      "target": "hard",
+      "receipt": {
+        "txHash": "0x6779971d8298477ca81ead9cbbad18063fdd5b7f0dcb5c7433c8dead38de4a1d",
+        "gasUsed": 35017,
+        "status": 1,
+        "blockNumber": 9465131
+      }
+    }
+  ],
+  "assertions": {
+    "passed": [
+      "hard_finalize_success",
+      "alice_withdraw_hard_success",
+      "malicious_proxyWithdraw_hard_failure"
+    ],
+    "failed": [
+      "vuln_finalize_success"
+    ]
+  },
+  "balances_after": {
+    "attacker_token": 10925999999999999999880,
+    "alice_token": 10090999999999999999839,
+    "malicious_token": 983,
+    "auction_token_vuln": 12,
+    "auction_token_hard": 6
+  }
+}

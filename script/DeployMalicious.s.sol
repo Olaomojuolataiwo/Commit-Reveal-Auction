@@ -10,7 +10,7 @@ import "../src/malicious_contracts/MaliciousConditional.sol";
 contract DeployMalicious is Script {
     function run() external {
         // Read env vars (set GASBURN_LOOPS and CONDITIONAL_CADENCE as needed)
-        uint256 gasburnLoops = vm.envUint("GASBURN_LOOPS");         // defaults if not set -> 0 (we handle below)
+        uint256 gasburnLoops = vm.envUint("GASBURN_LOOPS"); // defaults if not set -> 0 (we handle below)
         uint256 conditionalCadence = vm.envUint("CONDITIONAL_CADENCE");
 
         // Fallback defaults if env not set (small safe defaults)
@@ -23,14 +23,14 @@ contract DeployMalicious is Script {
 
         vm.startBroadcast(deployerKey);
 
-//        MaliciousRevert mr = new MaliciousRevert(tokenAddress);
-//        console.log("Deployed MaliciousRevert at", address(mr));
+        //        MaliciousRevert mr = new MaliciousRevert(tokenAddress);
+        //        console.log("Deployed MaliciousRevert at", address(mr));
 
-//        MaliciousGasExhaustion mgb = new MaliciousGasExhaustion(gasburnLoops);
-//        console.log("Deployed MaliciousGasExhaustion at", address(mgb), "loops=", gasburnLoops);
+        //        MaliciousGasExhaustion mgb = new MaliciousGasExhaustion(gasburnLoops);
+        //        console.log("Deployed MaliciousGasExhaustion at", address(mgb), "loops=", gasburnLoops);
 
-//        MaliciousReentrant mre = new MaliciousReentrant();
-//        console.log("Deployed MaliciousReentrant at", address(mre));
+        //        MaliciousReentrant mre = new MaliciousReentrant();
+        //        console.log("Deployed MaliciousReentrant at", address(mre));
 
         MaliciousConditional mc = new MaliciousConditional(tokenAddress, conditionalCadence);
         console.log("Deployed MaliciousConditional at", address(mc), "cadence=", conditionalCadence);

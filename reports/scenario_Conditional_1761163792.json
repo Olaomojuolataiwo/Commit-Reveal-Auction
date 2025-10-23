@@ -1,0 +1,184 @@
+{
+  "label": "Conditional",
+  "timestamp": 1761162820,
+  "N_attack": 15,
+  "vuln_address": "0xa7657f581F0937F91117D4cd204da2D8251A4a36",
+  "vuln_id": 1,
+  "malicious_address": "0x71e714D7E4ca6ac3C71C8DD3E79152977A2Cea3a",
+  "malicious_abi_fns": [
+    "approveToken",
+    "calls",
+    "forwardCommitHardened",
+    "forwardCommitVulnerable",
+    "forwardReveal",
+    "proxyWithdraw",
+    "revertEvery",
+    "token"
+  ],
+  "balances_before": {
+    "deployer_token": 999999999999999999998994,
+    "malicious_token": 998
+  },
+  "funding": [
+    {
+      "txHash": "69f5a88cbdb3588ab121cd883b4b467fd41ac4cbad4947b5d82c8c5917838682",
+      "gasUsed": 34234,
+      "status": 1,
+      "blockNumber": 9468006
+    }
+  ],
+  "mal_approvals": [
+    {
+      "txHash": "f7a8d6597fb225a7239e6ea82adffb2c56fa20de80c5232e60b80436fa1a9f50",
+      "gasUsed": 49957,
+      "status": 1,
+      "blockNumber": 9468007,
+      "target": "vuln"
+    },
+    {
+      "txHash": "20a546d04c2ee73613992ee7762c5ce63898f7deb5a8b68c3c6aff0a27356171",
+      "gasUsed": 49957,
+      "status": 1,
+      "blockNumber": 9468013,
+      "target": "hard"
+    }
+  ],
+  "attacker_accepted_commits": 1,
+  "commit_tx_hashes": [
+    "35168c3970232881bcbf419dc70dc2a77849500a0661f13aded3f9e9c22f28b3"
+  ],
+  "alice_commits": [
+    {
+      "target": "0x2A4827Ee487e4D37712a966ff602ed469a795712",
+      "receipt": {
+        "txHash": "3c5ffc744c7c877f4692faa48a81651195e7840271438dac94840277c8043a5e",
+        "gasUsed": 140396,
+        "status": 1,
+        "blockNumber": 9468016
+      }
+    },
+    {
+      "target": "0x2A4827Ee487e4D37712a966ff602ed469a795712",
+      "receipt": {
+        "txHash": "08d66cc4fc842a63825433042e5fd3cb3139eb9b5722c30a8c763110ab0e1b49",
+        "gasUsed": 137808,
+        "status": 1,
+        "blockNumber": 9468047
+      }
+    }
+  ],
+  "mal_reveals_vuln": [
+    {
+      "txHash": "f82e89d678649480edd402df79b99d82a80366680b63f40c69d9830b8e851736",
+      "gasUsed": 27952,
+      "status": 0,
+      "blockNumber": 9468017
+    }
+  ],
+  "finalizes": [
+    {
+      "target": "vuln",
+      "receipt": {
+        "txHash": "69f5a88cbdb3588ab121cd883b4b467fd41ac4cbad4947b5d82c8c5917838682",
+        "gasUsed": 34234,
+        "status": 1,
+        "blockNumber": 9468006
+      }
+    },
+    {
+      "target": "hard",
+      "receipt": {
+        "txHash": "69f5a88cbdb3588ab121cd883b4b467fd41ac4cbad4947b5d82c8c5917838682",
+        "gasUsed": 34234,
+        "status": 1,
+        "blockNumber": 9468006
+      }
+    }
+  ],
+  "withdraws_vuln": {},
+  "mal_withdraws": [
+    {
+      "target": "vuln",
+      "receipt": {
+        "txHash": "f242fec06f1b7fc8671fb2475fd52c956080b1264fbb5d8eac4ce59acfc4830e",
+        "gasUsed": 25076,
+        "status": 0,
+        "blockNumber": 9468043
+      }
+    },
+    {
+      "target": "hard",
+      "receipt": {
+        "txHash": "036588624da6a79a811c0d2bef27f3d1cf054ba1e4645df2242a838c49e2049a",
+        "gasUsed": 27516,
+        "status": 0,
+        "blockNumber": 9468082
+      }
+    }
+  ],
+  "alice_withdraw_errors": [
+    {
+      "target": "vuln",
+      "err": "(\"The function 'withdraw' was not found in this \", \"contract's abi.\")"
+    }
+  ],
+  "hard_address": "0x2A4827Ee487e4D37712a966ff602ed469a795712",
+  "hard_id": 1,
+  "attacker_accepted_commits_h": 1,
+  "commit_tx_hashes_h": [
+    "f59c32310dac961389fd858eea3e1fdcf50f908aa4a99f57796b3588ac63ffca"
+  ],
+  "alice_h": {
+    "status": "failed",
+    "stage": "commit/reveal",
+    "raw": {
+      "commit_hash": "307fae7feb532da0d27716b2235e2c7be745f2470a70aab34daf1ca857d561ac",
+      "bid": 1,
+      "salt": "a14dd306b291c826b91e436d1ed1c12e03eeaf26f33f0acb8d7fc3c60206e609"
+    }
+  },
+  "mal_reveals": [],
+  "mal_reveal_errors": [
+    {
+      "target": "hard",
+      "err": "name 'rc_reveal' is not defined"
+    }
+  ],
+  "hard_finalize_pages": [
+    {
+      "txHash": "7ed2e1f15bf68f6895064f32a046de975cf4b4386355e402c86f78ba6f92c6ab",
+      "gasUsed": 74368,
+      "status": 1,
+      "blockNumber": 9468081
+    }
+  ],
+  "withdraws_hard": {},
+  "alice_withdraws": [
+    {
+      "target": "hard",
+      "receipt": {
+        "txHash": "69f5a88cbdb3588ab121cd883b4b467fd41ac4cbad4947b5d82c8c5917838682",
+        "gasUsed": 34234,
+        "status": 1,
+        "blockNumber": 9468006
+      }
+    }
+  ],
+  "assertions": {
+    "passed": [
+      "hard_finalize_success",
+      "alice_withdraw_hard_success",
+      "malicious_proxyWithdraw_hard_failure"
+    ],
+    "failed": [
+      "vuln_finalize_success"
+    ]
+  },
+  "balances_after": {
+    "attacker_token": 0,
+    "alice_token": 0,
+    "malicious_token": 998,
+    "auction_token_vuln": 2,
+    "auction_token_hard": 2
+  }
+}

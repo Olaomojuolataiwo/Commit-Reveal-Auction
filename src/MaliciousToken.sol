@@ -23,10 +23,7 @@ contract MaliciousToken is ERC20, Ownable {
         uint256 initialSupply_,
         address _watchAddress,
         uint256 _revertEvery
-    )
-        ERC20(name_, symbol_)
-        Ownable(msg.sender)
-    {
+    ) ERC20(name_, symbol_) Ownable(msg.sender) {
         _mint(msg.sender, initialSupply_);
         watchAddress = _watchAddress;
         revertEvery = _revertEvery;

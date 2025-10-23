@@ -10,7 +10,7 @@ import "src/utils/IAuctions.sol";
 /// @notice Acts as a bidder contract (forwarder) but reverts on any incoming ETH.
 /// Useful to grief push-based payouts or to assert that pull-payments are required.
 
-contract MaliciousRevert is ApproveHelper{
+contract MaliciousRevert is ApproveHelper {
     address public immutable token; // ERC20 token used for deposits/refunds
 
     constructor(address tokenAddress) {
@@ -31,7 +31,9 @@ contract MaliciousRevert is ApproveHelper{
     /// It first approves the auction to pull `depositAmount` tokens from this contract,
     /// then calls the auction.commit(...) so that the auction sees `msg.sender == address(this)`.
     /// The controller EOA should ensure this contract has sufficient token balance before calling.
-    function forwardCommitVulnerable(address auction, uint256 auctionId, bytes32 commitHash, uint256 depositAmount) external {
+    function forwardCommitVulnerable(address auction, uint256 auctionId, bytes32 commitHash, uint256 depositAmount)
+        external
+    {
         // Approve the auction to pull depositAmount from this contract
         require(IERC20Minimal(token).approve(auction, depositAmount), "approve failed");
         // Call the vulnerable commit signature: commit(auctionId, commitHash, depositAmount)
@@ -46,14 +48,14 @@ contract MaliciousRevert is ApproveHelper{
     /// @notice Forward a reveal (both variants use the same reveal signature)
     /// @notice Forward a reveal (both variants use the same reveal signature)
     function forwardReveal(address auction, uint256 auctionId, uint256 bidAmount, bytes32 salt) external {
-    IHardenedAuction(auction).reveal(auctionId, bidAmount, salt);
+        IHardenedAuction(auction).reveal(auctionId, bidAmount, salt);
     }
 
     /// @notice Proxy withdraw: call auction.withdraw(auctionId) from this contract context.
     /// This makes the auction see this contract as caller (msg.sender) and will trigger `receive()` if the auction pushes ETH.
     function proxyWithdraw(address auction, uint256 auctionId) external {
         // call withdraw(uint256)
-        (bool ok, ) = auction.call(abi.encodeWithSignature("withdraw(uint256)", auctionId));
+        (bool ok,) = auction.call(abi.encodeWithSignature("withdraw(uint256)", auctionId));
         require(ok, "proxyWithdraw failed");
     }
 }

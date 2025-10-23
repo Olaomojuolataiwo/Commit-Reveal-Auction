@@ -70,11 +70,13 @@ ALICE_KEY = os.environ.get("ALICE_KEY")
 MOCK_TOKEN_ADDRESS = os.environ.get("MOCK_TOKEN_ADDRESS")
 MALICIOUS_TOKEN = os.environ.get("MALICIOUS_TOKEN")
 
+
 MAL_REVERT = os.environ.get("MAL_REVERT")
 MAL_GASEXHAUSTION = os.environ.get("MAL_GASEXHAUSTION")
 MAL_REENTRANT = os.environ.get("MAL_REENTRANT")
 MAL_CONDITIONAL = os.environ.get("MAL_CONDITIONAL")
 CURRENT_SCENARIO_TOKEN_ADDRESS = MOCK_TOKEN_ADDRESS
+
 
 if not (MAL_REVERT and MAL_GASEXHAUSTION and MAL_REENTRANT and MAL_CONDITIONAL):
     raise SystemExit("Set MAL_REVERT, MAL_GASEXHAUSTION, MAL_REENTRANT and MAL_CONDITIONAL environment variables with deployed attacker contract addresses")
@@ -96,6 +98,7 @@ COMMIT_DEPOSIT = int(os.environ.get("COMMIT_DEPOSIT", str(DEFAULTS["COMMIT_DEPOS
 MAX_COMMITS_PER_ADDRESS = int(os.environ.get("MAX_COMMITS_PER_ADDRESS", str(DEFAULTS["MAX_COMMITS_PER_ADDRESS"])))
 N_ATTACK = int(os.environ.get("N_ATTACK", str(DEFAULTS["N_ATTACK"])))
 APPROVE_BUFFER_MULT = float(os.environ.get("APPROVE_BUFFER_MULT", str(DEFAULTS["APPROVE_BUFFER_MULT"])))
+
 
 # ---------- Helpers ----------
 def find_artifact(name):
@@ -178,13 +181,6 @@ def build_and_send_contract_tx(w3, acct, contract_fn, nonce, gas=300000, value=0
 def short_receipt(r):
     return {"txHash": r.transactionHash.hex(), "gasUsed": r.gasUsed, "status": r.status, "blockNumber": r.blockNumber}
 
-def hexbytes_converter(obj):
-    """A custom serializer for JSON dump to handle HexBytes objects."""
-    if isinstance(obj, HexBytes):
-        return obj.hex()
-    # Allows default JSON serialization for other types
-    return json.JSONEncoder.default(None, obj)
-
 # wait config
 BLOCK_POLL_INTERVAL = float(os.environ.get("BLOCK_POLL_INTERVAL", "6.0"))  # seconds between polls
 BLOCK_WAIT_TIMEOUT = int(os.environ.get("BLOCK_WAIT_TIMEOUT", "1800"))     # seconds total timeout
@@ -223,6 +219,8 @@ def wait_for_phase_end(auction_contract, auction_id, phase="commit", timeout_s=B
             print(f"Error fetching {phase} end block: {e}")
             time.sleep(poll_interval)
             continue    
+
+
         if target is None:
             print("No target block found for phase; aborting wait.")
             return
@@ -233,6 +231,8 @@ def wait_for_phase_end(auction_contract, auction_id, phase="commit", timeout_s=B
         except TimeoutError as te:
             print(f"Timeout waiting for {phase} phase to end: {te}")
             return
+
+
 # ---------- Start ----------
 if not (WEB3_RPC_URL and DEPLOYER_KEY and ATTACKER_KEY and ALICE_KEY and MOCK_TOKEN_ADDRESS):
     raise SystemExit("Set WEB3_RPC_URL, DEPLOYER_KEY, ATTACKER_KEY, ALICE_KEY, MOCK_TOKEN_ADDRESS env vars before running")
@@ -255,6 +255,7 @@ print("N_ATTACK:", N_ATTACK, "COMMIT_DEPOSIT:", COMMIT_DEPOSIT, "MAX_COMMITS_PER
 DEPLOYER_NONCE = w3.eth.get_transaction_count(deployer.address, "pending")
 ATTACKER_NONCE = w3.eth.get_transaction_count(attacker.address, "pending")
 ALICE_NONCE = w3.eth.get_transaction_count(alice.address, "pending")
+
 
 # Load artifacts
 vuln_art = load_artifact(VULN_NAME)
@@ -404,20 +405,16 @@ def run_scenario(label):
     # Expected status: True for Success (1), False for Failure (0)
     EXPECTED_OUTCOMES = {
         # (phase, actor, auction): {Revert: bool, GasExhaustion: bool, Reentrant: bool, Conditional: bool}
-        ("commit", "mal", "vuln"): {"Revert": True, "GasExhaustion": True, "Reentrant": True, "Conditional": True}, 
-        ("commit", "alice", "vuln"): {"Revert": False, "GasExhaustion": False, "Reentrant": True, "Conditional": True}, 
-        ("commit", "alice", "hard"): {"Revert": True, "GasExhaustion": True, "Reentrant": True, "Conditional": True},
-        ("commit", "mal", "hard"): {"Revert": True, "GasExhaustion": True, "Reentrant": True, "Conditional": True},
-        ("reveal", "alice", "vuln"): {"Revert": False, "GasExhaustion": False, "Reentrant": True, "Conditional": True},
-        ("reveal", "mal", "vuln"): {"Revert": True, "GasExhaustion": True, "Reentrant": True, "Conditional": True},
-        ("reveal", "mal", "hard"): {"Revert": True, "GasExhaustion": True, "Reentrant": False, "Conditional": True}, 
-        ("reveal", "alice", "hard"): {"Revert": True, "GasExhaustion": True, "Reentrant": True, "Conditional": True}, 
-        ("finalize", "all", "vuln"): {"Revert": False, "GasExhaustion": False, "Reentrant": False, "Conditional": False}, 
-        ("finalize", "all", "hard"): {"Revert": True, "GasExhaustion": True, "Reentrant": True, "Conditional": True}, 
-        ("withdraw", "alice", "vuln"): {"Revert": False, "GasExhaustion": False, "Reentrant": False, "Conditional": False}, 
-        ("withdraw", "alice", "hard"): {"Revert": True, "GasExhaustion": True, "Reentrant": True, "Conditional": True}, 
-        ("withdraw", "mal", "hard"): {"Revert": False, "GasExhaustion": False, "Reentrant": False, "Conditional": False},
-        ("withdraw", "mal", "vuln"): {"Revert": False, "GasExhaustion": False, "Reentrant": False, "Conditional": False},
+        ("commit", "mal", "vuln"): {"Revert": True, "GasExhaustion": True, "Reentrant": True, "Conditional": True}, # Malicious commit (Vulnerable): Always Succeed
+        ("commit", "alice", "vuln"): {"Revert": False, "GasExhaustion": False, "Reentrant": True, "Conditional": True}, # Alice commit (Vulnerable): Fails in Revert/GasExhaustion
+        ("commit", "all", "hard"): {"Revert": True, "GasExhaustion": True, "Reentrant": True, "Conditional": True}, # Commits (Hardened): Always Succeed
+        ("reveal", "all", "vuln"): {"Revert": False, "GasExhaustion": False, "Reentrant": True, "Conditional": True}, # Reveal (Vulnerable): Fails in Revert/GasExhaustion
+        ("reveal", "mal", "hard"): {"Revert": False, "GasExhaustion": False, "Reentrant": True, "Conditional": True}, # Malicious Reveal (Hardened): Fails in Revert/GasExhaustion
+        ("reveal", "alice", "hard"): {"Revert": True, "GasExhaustion": True, "Reentrant": True, "Conditional": True}, # Alice Reveal (Hardened): Always Succeed (Set to True for all, though technically same as mal for Hardened in this case)
+        ("finalize", "all", "vuln"): {"Revert": False, "GasExhaustion": False, "Reentrant": False, "Conditional": False}, # Finalize (Vulnerable): Always Fail
+        ("finalize", "all", "hard"): {"Revert": True, "GasExhaustion": True, "Reentrant": True, "Conditional": True}, # Finalize (Hardened): Always Succeed
+        ("withdraw", "alice", "vuln"): {"Revert": False, "GasExhaustion": False, "Reentrant": False, "Conditional": False}, # Alice Withdraw(Vulnerable): Always Fail
+        ("withdraw", "alice", "hard"): {"Revert": True, "GasExhaustion": True, "Reentrant": True, "Conditional": True}, # Alice Withdraw(Hardedned): Always Succeed
     }
 
     def expected_status(phase, actor, auction, scenario):
@@ -427,6 +424,10 @@ def run_scenario(label):
         if auction == "hard" and phase in ["commit", "reveal", "finalize", "withdraw"]:
             return 1 # Assume success for Hardened unless specifically marked otherwise
         return 1 # Default to success status if not found (unexpected behavior)
+
+
+
+
 
     if label == "Conditional":
         CURRENT_SCENARIO_TOKEN_ADDRESS = MALICIOUS_TOKEN
@@ -455,6 +456,7 @@ def run_scenario(label):
     vuln_id, vuln_rc, DEPLOYER_NONCE = new_auction_and_id(vuln, DEPLOYER_NONCE)
     report["vuln_address"] = auction_results["vuln"]["address"]
     report["vuln_id"] = vuln_id
+
 
     # 2) attach malicious contract
     mal_addr = SCENARIOS[label]
@@ -489,6 +491,7 @@ def run_scenario(label):
     except Exception as e:
         report.setdefault("funding_probe_errors", []).append(str(e))
         print("Could not probe balances:", e)
+
 
     # Try funding mal contract from deployer if possible
     try:
@@ -630,20 +633,20 @@ def run_scenario(label):
                 ATTACKER_NONCE += 1
                 commit_hashes.append(rc.transactionHash.hex())
                 if rc.status == expected:
-                    accepted += 1
-                    outcome = "SUCCESS (status: 1)" if rc.status == 1 else "FAILURE (status: 0)"
-                    if i < 5 or (i % 50 == 0) or i == attack_commit_count - 1:
-                        print(f"Commit #{i+1} on vulnerable: EXPECTED {outcome}")
-                    if rc.status == 1 and successful_commit_salt is None:
-                        successful_commit_bid = ATTACKER_BID
-                        successful_commit_salt = salt
-                        print(f"Stored first successful commit: bid={successful_commit_bid}")
+                accepted += 1
+                outcome = "SUCCESS (status: 1)" if rc.status == 1 else "FAILURE (status: 0)"
+                if i < 5 or (i % 50 == 0) or i == attack_commit_count - 1:
+                    print(f"Commit #{i+1} on vulnerable: EXPECTED {outcome}")
+                if rc.status == 1 and successful_commit_salt is None:
+                    successful_commit_bid = ATTACKER_BID
+                    successful_commit_salt = salt
+                    print(f"Stored first successful commit: bid={successful_commit_bid}")
                 else:
-                    outcome = "SUCCESS (status: 1)" if rc.status == 1 else "FAILURE (status: 0)"
+                    outcome = "SUCCESS (status: 1)" if rc.status == 1 else "FAILURE (status: 0)
                     print(f"Commit #{i+1} on vulnerable: UNEXPECTED {outcome} (Expected status: {expected})")
 
             else:
-                # fallback to hardened forwarder
+            # fallback to hardened forwarder
                 auction_type = "hardened"
                 auction_id_hard_int = int(hard_id)
                 fn2 = mal_contract.functions.forwardCommitHardened(auction_results["hard"]["address"], auction_id_hard_int, ch)
@@ -656,7 +659,7 @@ def run_scenario(label):
                     successful_commit_bid = ATTACKER_BID
                     successful_commit_salt = salt
                     print(f"Stored first successful commit: bid={successful_commit_bid}")
-        except Exception as e:
+        except Exception e:
             err_info = {"i": i, "err": str(e), "expected_status": expected}
             report.setdefault("commit_errors", []).append(err_info)
 
@@ -700,9 +703,6 @@ def run_scenario(label):
             pass
         # commit
         try:
-            is_hardened = auction_contract.address == auction_results["hard"]["address"]
-            expected_status_commit = expected_alice_commit_hard if is_hardened else expected_alice_commit_vuln
-            target_auction = "HARDENED" if is_hardened else "VULNERABLE"
 
             if auction_contract.address == auction_results["hard"]["address"]:
                 # HARDENED AUCTION: commit(uint256, bytes32) - 2 positional arguments
@@ -717,36 +717,50 @@ def run_scenario(label):
             })
             rc = send_signed_tx(w3, alice, txc)
             ALICE_NONCE += 1
+            # --- REFACTORED STATUS CHECK (uses only if/elif/else logic) ---
+            is_hardened = auction_contract.address == auction_results["hard"]["address"]
 
             # Check for EXPECTED outcome on VULNERABLE
-            if not is_hardened and rc.status == expected_status_commit: # Check if it's vuln AND status matches vuln expectation
+            if not is_hardened and rc.status == expected_alice_commit_vuln: # Check if it's vuln AND status matches vuln expectation
                 outcome = "SUCCESS (status: 1)" if rc.status == 1 else "FAILURE (status: 0)"
                 print(f"Alice commit (VULNERABLE): EXPECTED {outcome}")
 
             # Check for EXPECTED outcome on HARDENED
-            elif is_hardened and rc.status == expected_status_commit: # Check if it's hard AND status matches hard expectation
+            elif is_hardened and rc.status == expected_alice_commit_hard: # Check if it's hard AND status matches hard expectation
                 outcome = "SUCCESS (status: 1)" if rc.status == 1 else "FAILURE (status: 0)"
                 print(f"Alice commit (HARDENED): EXPECTED {outcome}")
-
+            
             # UNEXPECTED Outcome (for EITHER auction)
             else:
+                # Determine which auction was run to print the correct log and status
+                target = "hard" if is_hardened else "vuln"
+                target_auction = "HARDENED" if is_hardened else "VULNERABLE"
+                expected_status = expected_alice_commit_hard if is_hardened else expected_alice_commit_vuln
+                
                 outcome = "SUCCESS (status: 1)" if rc.status == 1 else "FAILURE (status: 0)"
                 print(f"Alice commit ({target_auction}): UNEXPECTED {outcome} (Expected status: {expected_status})")
-
+                
             report.setdefault("alice_commits", []).append({"target": target, "receipt": short_receipt(rc)})
+            # --- END REFACTORED STATUS CHECK ---
+
 
         except Exception as e:
+            # Determine which auction was run to print the correct error
+            is_hardened = auction_contract.address == auction_results["hard"]["address"]
+            target_auction = "HARDENED" if is_hardened else "VULNERABLE"
+            expected_status = expected_alice_commit_hard if is_hardened else expected_alice_commit_vuln
             target_key = "hard" if is_hardened else "vuln"
-
-            if expected_status_commit == 0:
+            
+            if expected_status == 0:
                 print(f"Alice commit ({target_auction}): EXPECTED FAILURE (Tx failed/reverted)")
             else:
                 print(f"Alice commit ({target_auction}): UNEXPECTED FAILURE (Tx failed/reverted): {e}")
-
+            
             report.setdefault("alice_commit_errors", []).append({"target": target_key, "err": str(e)})
             return {}
-
+            
         return {"commit_hash": ch, "bid": bid, "salt": salt}
+
 
         print("Waiting for commit phase to finish on Vulnerable auction...")
         wait_for_phase_end(auction_contract, auction_id, phase="commit")
@@ -847,7 +861,6 @@ def run_scenario(label):
 
     print("Waiting for reveal phase to end for Vulnerable auction...")
     wait_for_phase_end(vuln, vuln_id, phase="reveal")
-    expected_finalize_vuln = expected_status("finalize", "all", "vuln", label)
     try:
         rc = build_and_send_contract_tx(w3, deployer, vuln.functions.finalize(vuln_id), nonce = DEPLOYER_NONCE, gas=2_000_000)
         DEPLOYER_NONCE += 1
@@ -865,33 +878,33 @@ def run_scenario(label):
             print(f"Finalize (VULNERABLE): UNEXPECTED FAILURE (Tx failed/reverted): {e}")
         report.setdefault("finalize_errors", []).append({"target": "vuln", "err": str(e)})
 
+
     # 9) Withdraw tests on Vulnerable Contract
-    expected_mal_vuln_withdraw = expected_status("withdraw", "mal", "vuln", label)
+    expected_mal_withdraw = expected_status("withdraw", "mal", "both", label)
     report["withdraws_vuln"] = {}
     try:
         fnw = mal_contract.functions.proxyWithdraw(auction_results["vuln"]["address"], vuln_id)
         rcw = build_and_send_contract_tx(w3, attacker, fnw, nonce = ATTACKER_NONCE, gas=300000)
         ATTACKER_NONCE += 1
-        if rcw.status == expected_mal_vuln_withdraw:
+        if rcw.status == expected_mal_withdraw
             outcome = "SUCCESS (status: 1)" if rcw.status == 1 else "FAILURE (status: 0)"
             print(f"Malicious proxyWithdraw (VULNERABLE): EXPECTED {outcome}")
         else:
             outcome = "SUCCESS (status: 1)" if rcw.status == 1 else "FAILURE (status: 0)"
-            print(f"Malicious proxyWithdraw (VULNERABLE): UNEXPECTED {outcome} (Expected status: {expected_mal_vuln_withdraw})")
-        report.setdefault("mal_withdraws", []).append({"target": "vuln", "receipt": short_receipt(rcw)})
+            print(f"Malicious proxyWithdraw (VULNERABLE): UNEXPECTED {outcome} (Expected status: {expected_mal_withdraw})")
+        report.setdefault("mal_withdraws", []).append({"target": "vuln", "receipt": short_receipt(r)})
     except Exception as e:
-        if expected_mal_vuln_withdraw == 0:
+        if expected_mal_withdraw == 0:
             print(f"Malicious proxyWithdraw (VULNERABLE): EXPECTED FAILURE (Tx failed/reverted)")
         else:
-            print(f"Malicious proxyWithdraw (VULNERABLE): EXPECTED FAILURE (Tx failed/reverted): {e}")
+            print(f"Malicious proxyWithdraw (VULNERABLE): UNEXPECTED FAILURE (Tx failed/reverted): {e}")
         report.setdefault("mal_withdraw_errors", []).append({"target": "vuln", "err": str(e)})
 
     # alice withdraw Vulnerable (pull) - EXPECT FAILURE (Missing function)
-    expected_alice_withdraw = expected_status("withdraw", "alice", "both", label)
     try:
         rca = build_and_send_contract_tx(w3, alice, vuln.functions.withdraw(vuln_id), nonce = ALICE_NONCE, gas=200000)
         ALICE_NONCE += 1
-        if rca.status == expected_alice_withdraw:
+        if r.status == expected_alice_withdraw:
             print(f"Alice withdraw (VULNERABLE): EXPECTED SUCCESS (status: {r.status})")
         else:
             print(f"Alice withdraw (VULNERABLE): UNEXPECTED FAILURE (status: {r.status}) (Expected status: {expected_alice_withdraw})")
@@ -901,7 +914,7 @@ def run_scenario(label):
         if expected_alice_withdraw == 0:
             print(f"Alice withdraw (VULNERABLE): EXPECTED FAILURE (Tx failed/reverted)")
         else:
-            print(f"Alice withdraw (VULNERABLE): EXPECTED FAILURE (Tx failed/reverted): {e}")
+            print(f"Alice withdraw (VULNERABLE): UNEXPECTED FAILURE (Tx failed/reverted): {e}")
         report.setdefault("alice_withdraw_errors", []).append({"target": "vuln", "err": str(e)})
 
     # ----------------------------------------------------------------------------------------------------------------------
@@ -1015,13 +1028,13 @@ def run_scenario(label):
         else:
             outcome = "SUCCESS (status: 1)" if hcr.status == 1 else "FAILURE (status: 0)"
             print(f"Malicious reveal (HARDENED): UNEXPECTED {outcome} (Expected status: {expected_mal_reveal_hard})")
-
-            report.setdefault("mal_reveals", []).append({"target": "hard", "receipt": short_receipt(hcr)})
-    except Exception as e:
-        if expected_mal_reveal_hard == 0:
-            print(f"Malicious reveal (HARDENED): EXPECTED FAILURE (Tx failed/reverted)")
-        else:
-            print(f"Malicious reveal (HARDENED): UNEXPECTED FAILURE (Tx failed/reverted): {e}")
+            
+            report.setdefault("mal_reveals", []).append({"target": "hard", "receipt": short_receipt(rc_reveal)})
+        except Exception as e:
+            if expected_mal_reveal_hard == 0:
+                print(f"Malicious reveal (HARDENED): EXPECTED FAILURE (Tx failed/reverted)")
+            else:
+                print(f"Malicious reveal (HARDENED): UNEXPECTED FAILURE (Tx failed/reverted): {e}")
             report.setdefault("mal_reveal_errors", []).append({"target": "hard", "err": str(e)})
 
     # ---------------------------------------------
@@ -1037,37 +1050,33 @@ def run_scenario(label):
             DEPLOYER_NONCE += 1
             report["hard_finalize_pages"].append(short_receipt(rc))
             finalized = hard.functions.isFinalized(hard_id).call()
-            print(f"Finalize (HARDENED): EXPECTED SUCCESS (status: {rc.status})")
-            # --------- BREAK CONDITION ------
-            if finalized:
-                break
-            # --------------------------------
+            print(f"Finalize (HARDENED): EXPECTED SUCCESS (status: {r.status})")
         report.setdefault("finalizes", []).append({"target": "hard", "receipt": short_receipt(r)})
     except Exception as e:
         print(f"Finalize (HARDENED): UNEXPECTED FAILURE (Tx failed/reverted): {e}")
         report.setdefault("finalize_errors", []).append({"target": "hard", "err": str(e)})
 
+
     # B5) Withdraw tests on Hardened Contract 
 
     report["withdraws_hard"] = {} 
 
-    # attempt malicious withdraw via proxy (EXPECTED FAILURE)
-    expected_mal_hard_withdraw = expected_status("withdraw", "mal", "hard", label)
+    # attempt malicious withdraw via proxy (EXPECT SUCCESS - Hardened pull is safe)
     try:
         fnw = mal_contract.functions.proxyWithdraw(auction_results["hard"]["address"], hard_id)
         # The transaction must be sent by the attacker EOA
         rcw = build_and_send_contract_tx(w3, attacker, fnw, nonce = ATTACKER_NONCE, gas=300000)
         ATTACKER_NONCE += 1
-        if rcw.status == expected_mal_hard_withdraw:
+        if rcw.status == expected_mal_withdraw:
             outcome = "SUCCESS (status: 1)" if rcw.status == 1 else "FAILURE (status: 0)"
             print(f"Malicious proxyWithdraw (HARDENED): EXPECTED {outcome}")
         else:
-            outcome = "SUCCESS (status: 1)" if rcw.status == 1 else "FAILURE (status: 0)"
-            print(f"Malicious proxyWithdraw (HARDENED): UNEXPECTED {outcome} (Expected status: {expected_mal_hard_withdraw})")
+            outcome = "SUCCESS (status: 1)" if r.status == 1 else "FAILURE (status: 0)"
+            print(f"Malicious proxyWithdraw (HARDENED): UNEXPECTED {outcome} (Expected status: {expected_mal_withdraw})")
 
-        report.setdefault("mal_withdraws", []).append({"target": "hard", "receipt": short_receipt(rcw)})
+        report.setdefault("mal_withdraws", []).append({"target": "hard", "receipt": short_receipt(r)})
     except Exception as e:
-        if expected_mal_hard_withdraw == 0:
+        if expected_mal_withdraw == 0:
             print(f"Malicious proxyWithdraw (HARDENED): EXPECTED FAILURE (Tx failed/reverted)")
         else:
             print(f"Malicious proxyWithdraw (HARDENED): UNEXPECTED FAILURE (Tx failed/reverted): {e}")
@@ -1078,41 +1087,38 @@ def run_scenario(label):
         rca = build_and_send_contract_tx(w3, alice, hard.functions.withdraw(hard_id), nonce = ALICE_NONCE, gas=200000)
         ALICE_NONCE += 1
         if rca.status == expected_alice_withdraw:
-            print(f"Alice withdraw (HARDENED): EXPECTED SUCCESS (status: {rca.status})")
+            print(f"Alice withdraw (HARDENED): EXPECTED SUCCESS (status: {r.status})")
         else:
-            print(f"Alice withdraw (HARDENED): UNEXPECTED FAILURE (status: {rca.status}) (Expected status: {expected_alice_withdraw})")
-
-        report.setdefault("alice_withdraws", []).append({"target": "hard", "receipt": short_receipt(rca)})
+            print(f"Alice withdraw (HARDENED): UNEXPECTED FAILURE (status: {r.status}) (Expected status: {expected_alice_withdraw})")
+        
+        report.setdefault("alice_withdraws", []).append({"target": "hard", "receipt": short_receipt(r)})
     except Exception as e:
         if expected_alice_withdraw == 0:
             print(f"Alice withdraw (HARDENED): EXPECTED FAILURE (Tx failed/reverted)")
-
-        elif "nothing to withdraw" in str(e).lower():
-            print("Alice withdraw revert (expected): no remaining balance.")
-
         else:
             print(f"Alice withdraw (HARDENED): UNEXPECTED FAILURE (Tx failed/reverted): {e}")
         report.setdefault("alice_withdraw_errors", []).append({"target": "hard", "err": str(e)})
+
+        return report # Final return
+
 
 
     # 11) Assertions (basic checks)
     print("\n11. Running Post-Scenario Assertions...")
     assertions = {"passed": [], "failed": []}
-
+    
     # Assert Hardened Finalize Success
-    hard_finalize = next((item for item in report.get("finalizes", []) if item["target"] == "hard"), None)
-    if hard_finalize and hard_finalize["receipt"]["status"] == 1:
+    if "hard" in report.get("finalizes", []) and report["finalizes"][0]["receipt"]["status"] == 1:
         assertions["passed"].append("hard_finalize_success")
     else:
         assertions["failed"].append("hard_finalize_failed")
 
     # Assert Vulnerable Finalize Failure
-    vuln_finalize = next((item for item in report.get("finalizes", []) if item["target"] == "vuln"), None)
-    if vuln_finalize and vuln_finalize["receipt"]["status"] == 0:
+    if "vuln" in report.get("finalizes", []) and report["finalizes"][0]["receipt"]["status"] == 0:
         assertions["passed"].append("vuln_finalize_failure")
     else:
         assertions["failed"].append("vuln_finalize_success")
-
+    
     # Assert Alice Withdraw Success on Hardened
     alice_hard_withdraw = next((item for item in report.get("alice_withdraws", []) if item["target"] == "hard"), None)
     if alice_hard_withdraw and alice_hard_withdraw["receipt"]["status"] == 1:
@@ -1126,7 +1132,7 @@ def run_scenario(label):
         assertions["passed"].append("malicious_proxyWithdraw_hard_failure")
     else:
         assertions["failed"].append("malicious_proxyWithdraw_hard_success")
-
+        
     report["assertions"] = assertions
 
     # Optionally fail fast so you see the divergence immediately
@@ -1134,7 +1140,7 @@ def run_scenario(label):
         # Only raise if expected final state (finalize/withdraw) fails, not intermediate commit/reveal steps
         if any(f in assertions["failed"] for f in ["hard_finalize_failed", "vuln_finalize_success", "alice_withdraw_hard_failed", "malicious_proxyWithdraw_hard_success"]):
             pass
-
+        
     # 12) balances snapshot
     try:
         report["balances_after"] = {
@@ -1150,8 +1156,7 @@ def run_scenario(label):
     # save report
     outfn = REPORT_DIR / f"scenario_{label}_{int(time.time())}.json"
     with open(outfn, "w") as fh:
-        # FIX: Use the 'default' argument to convert HexBytes objects
-        json.dump(report, fh, indent=2, default=hexbytes_converter)
+        json.dump(report, fh, indent=2)
     print("Saved report:", outfn)
     return report
 
@@ -1165,12 +1170,5 @@ for sc in ["Revert", "GasExhaustion", "Reentrant", "Conditional"]:
         summary[sc] = {"error": str(e)}
 
 # write summary
-def json_default(obj):
-    if isinstance(obj, HexBytes):
-        return obj.hex()
-    if isinstance(obj, bytes):
-        return obj.hex()
-    return str(obj)
-
-with open(report_path, "w") as fh:
-    json.dump(summary, fh, indent=2, default=json_default)
+with open(REPORT_DIR / "summary.json", "w") as fh:
+    json.dump(summary, fh, indent=2)

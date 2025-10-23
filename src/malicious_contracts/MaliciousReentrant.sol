@@ -29,7 +29,7 @@ contract MaliciousReentrant is ApproveHelper {
         if (!attacked && targetAuction != address(0)) {
             attacked = true;
             // attempt to reenter withdraw; ignore returned data
-            (bool ok, ) = targetAuction.call(abi.encodeWithSignature("withdraw(uint256)", targetAuctionId));
+            (bool ok,) = targetAuction.call(abi.encodeWithSignature("withdraw(uint256)", targetAuctionId));
             ok; // intentionally ignore success/failure
         }
     }
@@ -37,23 +37,28 @@ contract MaliciousReentrant is ApproveHelper {
     // -------------------------
     // Forwarding helpers (controller EOA calls these)
     // -------------------------
-    function forwardCommitVulnerable(address auction, uint256 auctionId, bytes32 commitHash, uint256 depositAmount) external {
-        (bool ok, ) = auction.call(abi.encodeWithSignature("commit(uint256,bytes32,uint256)", auctionId, commitHash, depositAmount));
+    function forwardCommitVulnerable(address auction, uint256 auctionId, bytes32 commitHash, uint256 depositAmount)
+        external
+    {
+        (bool ok,) = auction.call(
+            abi.encodeWithSignature("commit(uint256,bytes32,uint256)", auctionId, commitHash, depositAmount)
+        );
         require(ok, "forwardCommitVulnerable failed");
     }
 
     function forwardCommitHardened(address auction, uint256 auctionId, bytes32 commitHash) external {
-        (bool ok, ) = auction.call(abi.encodeWithSignature("commit(uint256,bytes32)", auctionId, commitHash));
+        (bool ok,) = auction.call(abi.encodeWithSignature("commit(uint256,bytes32)", auctionId, commitHash));
         require(ok, "forwardCommitHardened failed");
     }
 
     function forwardReveal(address auction, uint256 auctionId, uint256 bidAmount, bytes32 salt) external {
-        (bool ok, ) = auction.call(abi.encodeWithSignature("reveal(uint256,uint256,bytes32)", auctionId, bidAmount, salt));
+        (bool ok,) =
+            auction.call(abi.encodeWithSignature("reveal(uint256,uint256,bytes32)", auctionId, bidAmount, salt));
         require(ok, "forwardReveal failed");
     }
 
     function proxyWithdraw(address auction, uint256 auctionId) external {
-        (bool ok, ) = auction.call(abi.encodeWithSignature("withdraw(uint256)", auctionId));
+        (bool ok,) = auction.call(abi.encodeWithSignature("withdraw(uint256)", auctionId));
         require(ok, "proxyWithdraw failed");
     }
 }
