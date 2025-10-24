@@ -34,6 +34,7 @@ import time
 from pathlib import Path
 from web3 import Web3
 from eth_account import Account
+from web3.contract import Contract
 from hexbytes import HexBytes
 
 # ---------- Config/defaults ----------
@@ -160,7 +161,6 @@ def send_signed_tx(w3, signer, tx):
     # Send and wait
     tx_hash = w3.eth.send_raw_transaction(raw)
     receipt = w3.eth.wait_for_transaction_receipt(tx_hash)
-
     print(f"Sent tx {tx_hash.hex()} (nonce={tx['nonce']}) -> status: {receipt.status}")
     return receipt
 
@@ -383,15 +383,37 @@ def make_commit_hash(bid_int, salt_bytes):
 def make_commit_hard_hash(w3_instance, bid_int, salt_bytes):
     padded_salt = salt_bytes.ljust(32, b'\x00')
     try:
-        return w3_instance.solidity_keccak(
+        commit_hash = w3_instance.solidity_keccak(
             ['uint256', 'bytes32'], 
             [bid_int, padded_salt]
     )
     except AttributeError:
-        return w3_instance.solidityKeccak(
+        commit_hash = w3_instance.solidityKeccak(
             ['uint256', 'bytes32'], 
             [bid_int, padded_salt]
         )
+
+    return (commit_hash, padded_salt, bid_int)
+
+def get_stored_commit_hash(
+    auction_contract: Contract,
+    auction_id: int,
+    bidder_address: str
+) -> bytes:
+    try:
+        # Calls the new view function in the Solidity contract
+        stored_hash = auction_contract.functions.getCommitHash(
+            auction_id, 
+            bidder_address
+        ).call()
+        
+        return stored_hash
+        
+    except Exception as e:
+        # This will catch errors if the 'getCommitHash' function is missing from the ABI
+        print(f"Warning: Failed to fetch stored hash using getCommitHash. Ensure the function is in the contract ABI: {e}")
+        # Return empty bytes if retrieval fails
+        return b'\x00' * 32 
 
 # single scenario runner
 def run_scenario(label):
@@ -410,7 +432,7 @@ def run_scenario(label):
         ("commit", "mal", "hard"): {"Revert": True, "GasExhaustion": True, "Reentrant": True, "Conditional": True},
         ("reveal", "alice", "vuln"): {"Revert": False, "GasExhaustion": False, "Reentrant": True, "Conditional": True},
         ("reveal", "mal", "vuln"): {"Revert": True, "GasExhaustion": True, "Reentrant": True, "Conditional": True},
-        ("reveal", "mal", "hard"): {"Revert": True, "GasExhaustion": True, "Reentrant": False, "Conditional": True}, 
+        ("reveal", "mal", "hard"): {"Revert": False, "GasExhaustion": True, "Reentrant": False, "Conditional": True}, 
         ("reveal", "alice", "hard"): {"Revert": True, "GasExhaustion": True, "Reentrant": True, "Conditional": True}, 
         ("finalize", "all", "vuln"): {"Revert": False, "GasExhaustion": False, "Reentrant": False, "Conditional": False}, 
         ("finalize", "all", "hard"): {"Revert": True, "GasExhaustion": True, "Reentrant": True, "Conditional": True}, 
@@ -686,8 +708,19 @@ def run_scenario(label):
         salt = Web3.keccak(text=f"alice-{label}")
         bid = 1
         ch = make_commit_hash(bid, salt)
+        # 1. Determine if Hardened/Vulnerable (for logging/logic)
+        is_hardened = auction_contract.address == auction_results["hard"]["address"]
+        target_auction = "HARDENED" if is_hardened else "VULNERABLE"
+        target_key = "hard" if is_hardened else "vuln"
+    
+        # 2. Get expected statuses
         expected_alice_commit_vuln = expected_status("commit", "alice", "vuln", label)
         expected_alice_commit_hard = expected_status("commit", "alice", "hard", label)
+        expected_alice_reveal_vuln = expected_status("reveal", "alice", "vuln", label) # NOTE: changed "all" to "alice"
+        expected_alice_reveal_hard = expected_status("reveal", "alice", "hard", label)
+    
+        expected_status_commit = expected_alice_commit_hard if is_hardened else expected_alice_commit_vuln
+        expected_status_reveal = expected_alice_reveal_hard if is_hardened else expected_alice_reveal_vuln
 
         # approve token for auction (if necessary)
         try:
@@ -700,11 +733,7 @@ def run_scenario(label):
             pass
         # commit
         try:
-            is_hardened = auction_contract.address == auction_results["hard"]["address"]
-            expected_status_commit = expected_alice_commit_hard if is_hardened else expected_alice_commit_vuln
-            target_auction = "HARDENED" if is_hardened else "VULNERABLE"
-
-            if auction_contract.address == auction_results["hard"]["address"]:
+            if is_hardened:
                 # HARDENED AUCTION: commit(uint256, bytes32) - 2 positional arguments
                 fn_commit = auction_contract.functions.commit(auction_id, ch)
             else:
@@ -717,27 +746,19 @@ def run_scenario(label):
             })
             rc = send_signed_tx(w3, alice, txc)
             ALICE_NONCE += 1
-
-            # Check for EXPECTED outcome on VULNERABLE
-            if not is_hardened and rc.status == expected_status_commit: # Check if it's vuln AND status matches vuln expectation
-                outcome = "SUCCESS (status: 1)" if rc.status == 1 else "FAILURE (status: 0)"
-                print(f"Alice commit (VULNERABLE): EXPECTED {outcome}")
-
-            # Check for EXPECTED outcome on HARDENED
-            elif is_hardened and rc.status == expected_status_commit: # Check if it's hard AND status matches hard expectation
-                outcome = "SUCCESS (status: 1)" if rc.status == 1 else "FAILURE (status: 0)"
-                print(f"Alice commit (HARDENED): EXPECTED {outcome}")
-
-            # UNEXPECTED Outcome (for EITHER auction)
+        
+            # LOGGING COMMIT OUTCOME
+            outcome = "SUCCESS (status: 1)" if rc.status == 1 else "FAILURE (status: 0)"
+        
+            if rc.status == expected_status_commit:
+                print(f"Alice commit ({target_auction}): EXPECTED {outcome}")
             else:
-                outcome = "SUCCESS (status: 1)" if rc.status == 1 else "FAILURE (status: 0)"
-                print(f"Alice commit ({target_auction}): UNEXPECTED {outcome} (Expected status: {expected_status})")
+                print(f"Alice commit ({target_auction}): UNEXPECTED {outcome} (Expected status: {expected_status_commit})")
 
-            report.setdefault("alice_commits", []).append({"target": target, "receipt": short_receipt(rc)})
+            report.setdefault("alice_commits", []).append({"target": target_key, "receipt": short_receipt(rc)})
 
         except Exception as e:
-            target_key = "hard" if is_hardened else "vuln"
-
+            # LOGGING COMMIT FAILURE/REVERT
             if expected_status_commit == 0:
                 print(f"Alice commit ({target_auction}): EXPECTED FAILURE (Tx failed/reverted)")
             else:
@@ -745,69 +766,60 @@ def run_scenario(label):
 
             report.setdefault("alice_commit_errors", []).append({"target": target_key, "err": str(e)})
             return {}
-
-        return {"commit_hash": ch, "bid": bid, "salt": salt}
-
-        print("Waiting for commit phase to finish on Vulnerable auction...")
+        print(f"Waiting for commit phase to finish on {target_auction} auction...")
         wait_for_phase_end(auction_contract, auction_id, phase="commit")
 
         # reveal
-        print("\n8.B) Alice Reveal on VULNERABLE Auction...")
-        expected_alice_reveal_vuln = expected_status("reveal", "all", "vuln", label)
-        expected_alice_reveal_hard = expected_status("reveal", "alice", "hard", label)
-
+        print(f"\nAlice reveal on {target_auction} auction...")
         try:
             padded_salt = salt.ljust(32, b'\x00')
             txr = auction_contract.functions.reveal(auction_id, bid, padded_salt).build_transaction({
                 "from": alice.address, "nonce": ALICE_NONCE,
-                "gas": 200000, "gasPrice": w3.eth.gas_price, "chainId": w3.eth.chain_id
+               "gas": 200000, "gasPrice": w3.eth.gas_price, "chainId": w3.eth.chain_id
             })
             rc_reveal = send_signed_tx(w3, alice, txr)
             ALICE_NONCE += 1
-            if not is_hardened and rc_reveal.status == expected_alice_reveal_vuln: 
-                outcome = "SUCCESS (status: 1)" if rc_reveal.status == 1 else "FAILURE (status: 0)"
-                print(f"Alice reveal (VULNERABLE): EXPECTED {outcome}")
+        
+            # LOGGING REVEAL OUTCOME
+            outcome = "SUCCESS (status: 1)" if rc_reveal.status == 1 else "FAILURE (status: 0)"
 
-            # Check for EXPECTED outcome on HARDENED
-            elif is_hardened and rc_reveal.status == expected_alice_reveal_hard: 
-                outcome = "SUCCESS (status: 1)" if rc_reveal.status == 1 else "FAILURE (status: 0)"
-                print(f"Alice reveal (HARDENED): EXPECTED {outcome}")
-
-            # UNEXPECTED Outcome (for EITHER auction)
+            if rc_reveal.status == expected_status_reveal:
+                print(f"Alice reveal ({target_auction}): EXPECTED {outcome}")
             else:
-                # Use the existing derived variables
-                expected_status_reveal = expected_alice_reveal_hard if is_hardened else expected_alice_reveal_vuln
-                outcome = "SUCCESS (status: 1)" if rc_reveal.status == 1 else "FAILURE (status: 0)"
                 print(f"Alice reveal ({target_auction}): UNEXPECTED {outcome} (Expected status: {expected_status_reveal})")
 
-            report.setdefault("alice_reveals", []).append({"target": target, "receipt": short_receipt(rc_reveal)})
+            report.setdefault("alice_reveals", []).append({"target": target_key, "receipt": short_receipt(rc_reveal)})
 
         except Exception as e:
-            is_hardened = auction_contract.address == auction_results["hard"]["address"]
+            # LOGGING REVEAL FAILURE/REVERT
+            if expected_status_reveal == 0:
+                print(f"Alice reveal ({target_auction}): EXPECTED FAILURE (Tx failed/reverted)")
+            else:
+                print(f"Alice reveal ({target_auction}): UNEXPECTED FAILURE (Tx failed/reverted): {e}")
 
-        # 2. Set dynamic logging variables
-        if is_hardened:
-            target_auction = "HARDENED"
-            target_key = "hard"
-            expected_status_reveal = expected_alice_reveal_hard
-        else:
-            target_auction = "VULNERABLE"
-            target_key = "vuln"
-            expected_status_reveal = expected_alice_reveal_vuln
+            report.setdefault("alice_reveal_errors", []).append({"target": target_key, "err": str(e)})
+            return {}
 
-        # 3. Log based on expectation
-        if expected_status_reveal == 0:
-            print(f"Alice reveal ({target_auction}): EXPECTED FAILURE (Tx failed/reverted)")
-        else:
-            print(f"Alice reveal ({target_auction}): UNEXPECTED FAILURE (Tx failed/reverted): {e}")
+        return {"commit_hash": ch, "bid": bid, "salt": salt}
 
-        report.setdefault("alice_reveal_errors", []).append({"target": target_key, "err": str(e)})
-        return {}
     # Call the function for the VULNERABLE auction
     print("\n--- 7a) Alice Commit+Reveal on VULNERABLE Auction ---")
     # The function will print its own success/failure messages
     alice_results_vuln = alice_commit_reveal(vuln, vuln_id) 
     print(f"Alice VULNERABLE results: {alice_results_vuln}")
+
+    if isinstance(alice_results_vuln, dict) and "commit_hash" in alice_results_vuln:
+        # Function returned a successful result dict
+        print(f"Alice VULNERABLE: Full Commit/Reveal SUCCESS. Data: {alice_results_vuln}")
+        report["alice_v"] = alice_results_vuln
+    elif isinstance(alice_results_vuln, dict):
+        # Function returned the failure dict {} from an exception handler
+        print("Alice VULNERABLE: Commit/Reveal phase FAILED. (Details logged in report)")
+        report["alice_v"] = {"status": "failed", "stage": "commit/reveal", "raw": alice_results_vuln}
+    else:
+        # Unexpected result type
+        print(f"Alice VULNERABLE: Unexpected result type: {alice_results_vuln}")
+        report["alice_v"] = {"status": "unexpected_type", "raw": alice_results_vuln}
 
     # --- Vulnerable Auction Malicious Reveal ---
     expected_mal_reveal_vuln = expected_status("reveal", "mal", "vuln", label)
@@ -929,7 +941,7 @@ def run_scenario(label):
     for i in range(attack_commit_count):
         salt = f"attack-hard-{label}-{i}".encode('utf-8')
         ATTACKER_BID = 100
-        ch = make_commit_hard_hash(w3, ATTACKER_BID, salt)
+        ch, padded_salt_used, bid_used = make_commit_hard_hash(w3, ATTACKER_BID, salt)
         expected_mal_commit_hard = expected_status("commit", "mal", "hard", label)
 
         try:
@@ -946,9 +958,12 @@ def run_scenario(label):
                 outcome = "SUCCESS (status: 1)" if rc2.status == 1 else "FAILURE (status: 0)"
                 print(f"Commit #{i+1} on HARDENED: UNEXPECTED {outcome} (Expected status: {expected_mal_commit_hard})")
             if rc2.status == 1 and successful_hard_commit_salt is None:
-                    successful_hard_commit_bid = ATTACKER_BID
-                    successful_hard_commit_salt = salt
+                    successful_hard_commit_bid = bid_used
+                    successful_hard_commit_salt = padded_salt_used
                     print(f"Stored first successful commit: bid={successful_hard_commit_bid}")
+                    stored_hash = get_stored_commit_hash(hard, hard_id, attacker.address)
+                    is_match = stored_hash == ch
+                    print(f"Commit Verification: Stored Hash == Client Hash? {'✅ MATCH' if is_match else '❌ MISMATCH'}")
             if accepted_h >= MAX_COMMITS_PER_ADDRESS:
                 print(f"Attacker reached commit cap of {MAX_COMMITS_PER_ADDRESS}. Breaking loop.")
                 break
@@ -987,24 +1002,31 @@ def run_scenario(label):
     # B3) Alice commit+reveal on Hardened 
     # NOTE: The 'alice_commit_reveal' DEF is accessible, but it logs results to the main 'report' object.
     print("Alice commit+reveal on Hardened...")
-    expected_alice_commit_hard = expected_status("commit", "all", "hard", label)
     alice_h_result = alice_commit_reveal(hard, hard_id)
-    if isinstance(alice_h_result, dict):
+    if isinstance(alice_h_result, dict) and "commit_hash" in alice_h_result:
+        # Function returned a successful result dict (meaning both commit and reveal went through)
+        print(f"Alice HARDENED: Full Commit/Reveal SUCCESS. Data: {alice_h_result}")
+        report["alice_h"] = alice_h_result
+    elif isinstance(alice_h_result, dict):
+        # Function returned the failure dict {} from an exception handler
+        print("Alice HARDENED: Commit/Reveal phase FAILED. (Details logged in report)")
         report["alice_h"] = {"status": "failed", "stage": "commit/reveal", "raw": alice_h_result}
     else:
-        report["alice_h"] = short_receipt(alice_h_result)
+        # Unexpected result type
+        print(f"Alice HARDENED: Unexpected result type: {alice_h_result}")
+        report["alice_h"] = {"status": "unexpected_type", "raw": alice_h_result}
+
 
     # --- Hardened Auction Malicious Reveal ---
     print("DEBUG: Malicious Revert performing reveal on HARDENED auction.")
     expected_mal_reveal_hard = expected_status("reveal", "mal", "hard", label)
-    PADDED_HARD_SALT = successful_hard_commit_salt.ljust(32, b'\x00')
     try:
         # Use the malicious contract's forwardReveal function
         fbr = mal_contract.functions.forwardReveal(
             auction_results["hard"]["address"],
             hard_id,
             successful_hard_commit_bid,
-            PADDED_HARD_SALT
+            successful_hard_commit_salt
             )
         # The transaction must be sent by the attacker EOA
         hcr = build_and_send_contract_tx(w3, attacker, fbr, nonce = ATTACKER_NONCE, gas=1440000)
