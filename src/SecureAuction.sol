@@ -59,7 +59,7 @@ contract SecureAuction is ISimpleAuction {
         uint256 bestAmount;
         bool anyConfirmed = false;
 
-        for (uint i = 0; i < candidates.length; i++) {
+        for (uint256 i = 0; i < candidates.length; i++) {
             address bidder = candidates[i];
             Reveal storage r = reveals[auctionId][bidder];
             if (!r.revealed) continue;

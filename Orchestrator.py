@@ -432,7 +432,7 @@ def run_scenario(label):
         ("commit", "mal", "hard"): {"Revert": True, "GasExhaustion": True, "Reentrant": True, "Conditional": True},
         ("reveal", "alice", "vuln"): {"Revert": False, "GasExhaustion": False, "Reentrant": True, "Conditional": True},
         ("reveal", "mal", "vuln"): {"Revert": True, "GasExhaustion": True, "Reentrant": True, "Conditional": True},
-        ("reveal", "mal", "hard"): {"Revert": False, "GasExhaustion": True, "Reentrant": False, "Conditional": True}, 
+        ("reveal", "mal", "hard"): {"Revert": True, "GasExhaustion": True, "Reentrant": True, "Conditional": True}, 
         ("reveal", "alice", "hard"): {"Revert": True, "GasExhaustion": True, "Reentrant": True, "Conditional": True}, 
         ("finalize", "all", "vuln"): {"Revert": False, "GasExhaustion": False, "Reentrant": False, "Conditional": False}, 
         ("finalize", "all", "hard"): {"Revert": True, "GasExhaustion": True, "Reentrant": True, "Conditional": True}, 
@@ -957,12 +957,19 @@ def run_scenario(label):
             else:
                 outcome = "SUCCESS (status: 1)" if rc2.status == 1 else "FAILURE (status: 0)"
                 print(f"Commit #{i+1} on HARDENED: UNEXPECTED {outcome} (Expected status: {expected_mal_commit_hard})")
-            if rc2.status == 1 and successful_hard_commit_salt is None:
+            if rc2.status == 1:
                     successful_hard_commit_bid = bid_used
                     successful_hard_commit_salt = padded_salt_used
-                    print(f"Stored first successful commit: bid={successful_hard_commit_bid}")
-                    stored_hash = get_stored_commit_hash(hard, hard_id, attacker.address)
+                    print(f"Stored successful commit: bid={successful_hard_commit_bid}")
+                    report["successful_hard_commit_hash"] = ch
+                    stored_hash = get_stored_commit_hash(hard, hard_id, mal_contract.address)
                     is_match = stored_hash == ch
+                    # --- DEBUGGING PRINT STATEMENT ---
+                    print("=========================================================================================")
+                    print(f"DEBUG HASHES: Contract Stored: {stored_hash.hex()}")
+                    print(f"DEBUG HASHES: Python Calculated: {ch.hex()}")
+                    print("=========================================================================================")
+                    # --------------------------------------------------
                     print(f"Commit Verification: Stored Hash == Client Hash? {'✅ MATCH' if is_match else '❌ MISMATCH'}")
             if accepted_h >= MAX_COMMITS_PER_ADDRESS:
                 print(f"Attacker reached commit cap of {MAX_COMMITS_PER_ADDRESS}. Breaking loop.")
@@ -1003,6 +1010,7 @@ def run_scenario(label):
     # NOTE: The 'alice_commit_reveal' DEF is accessible, but it logs results to the main 'report' object.
     print("Alice commit+reveal on Hardened...")
     alice_h_result = alice_commit_reveal(hard, hard_id)
+
     if isinstance(alice_h_result, dict) and "commit_hash" in alice_h_result:
         # Function returned a successful result dict (meaning both commit and reveal went through)
         print(f"Alice HARDENED: Full Commit/Reveal SUCCESS. Data: {alice_h_result}")
@@ -1020,7 +1028,12 @@ def run_scenario(label):
     # --- Hardened Auction Malicious Reveal ---
     print("DEBUG: Malicious Revert performing reveal on HARDENED auction.")
     expected_mal_reveal_hard = expected_status("reveal", "mal", "hard", label)
+    
     try:
+        ch_retrieved = report.get("successful_hard_commit_hash")
+        if ch_retrieved is None:
+            raise Exception("Error: Could not retrieve successful commit hash for reveal check.")
+        
         # Use the malicious contract's forwardReveal function
         fbr = mal_contract.functions.forwardReveal(
             auction_results["hard"]["address"],
@@ -1028,6 +1041,15 @@ def run_scenario(label):
             successful_hard_commit_bid,
             successful_hard_commit_salt
             )
+        stored_hash = get_stored_commit_hash(hard, hard_id, mal_contract.address)
+        is_match = stored_hash == ch_retrieved
+        # --- DEBUGGING PRINT STATEMENT ---
+        print("=========================================================================================")
+        print(f"DEBUG HASHES: Contract Stored: {stored_hash.hex()}")
+        print(f"DEBUG HASHES: Python Calculated: {ch_retrieved.hex()}") # Use ch_retrieved here
+        print(f"Commit Verification: Stored Hash == Client Hash? {'✅ MATCH' if is_match else '❌ MISMATCH'}")
+        print("=========================================================================================")
+        # --------------------------------------------------
         # The transaction must be sent by the attacker EOA
         hcr = build_and_send_contract_tx(w3, attacker, fbr, nonce = ATTACKER_NONCE, gas=1440000)
         ATTACKER_NONCE += 1
@@ -1194,5 +1216,7 @@ def json_default(obj):
         return obj.hex()
     return str(obj)
 
+report_path = REPORT_DIR / f"summary_report_{int(time.time())}.json"
 with open(report_path, "w") as fh:
     json.dump(summary, fh, indent=2, default=json_default)
+print("Saved summary report:", report_path)

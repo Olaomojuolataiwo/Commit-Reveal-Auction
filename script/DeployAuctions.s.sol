@@ -34,15 +34,12 @@ contract DeployAuctions is Script {
         console.log(" Vulnerable Auction deployed at:", vulnerableAuction);
         console.log("requiredConfirmations =", confirmations);
 
-
-
         // Return both addresses for test scripts
         return (secureAuction, vulnerableAuction);
     }
     // Convenience overload with a sensible default (3 confirmations)
+
     function run() external returns (address, address) {
         return deploy(3);
     }
-
 }
-

@@ -191,9 +191,8 @@ contract HardenedAuction {
         return auctions[auctionId].revealEndBlock;
     }
     /// @notice Getter for the commit hash recorded for a specific bidder
+
     function getCommitHash(uint256 auctionId, address bidder) external view returns (bytes32) {
         return auctions[auctionId].commits[bidder].commitHash;
     }
-
-
 }
