@@ -92,4 +92,9 @@ contract VulnAuction is ISimpleAuction {
     function revealBlock(uint256 auctionId, address bidder) external view returns (uint256) {
         return reveals[auctionId][bidder].revealBlock;
     }
+
+    function debugHash(uint256 amount, bytes32 salt) public pure returns (bytes32) {
+    return keccak256(abi.encodePacked(amount, salt));
+    }
+
 }

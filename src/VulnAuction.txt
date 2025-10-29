@@ -3,10 +3,11 @@ pragma solidity ^0.8.20;
 
 import "./utils/ISimpleAuction.sol";
 
-/// @notice SecureAuction enforces requiredConfirmations (measured in blocks) before a revealed
-/// bid can be considered during finalization. This makes finalization resistant to short reorgs
-/// as it ignores reveals that are not at least `requiredConfirmations` blocks deep.
-contract SecureAuction is ISimpleAuction {
+/// @notice VulnAuction is intentionally vulnerable for demonstration:
+/// it records reveals but DOES NOT enforce requiredConfirmations at finalize time.
+/// As a result, finalizeWithCandidates can conclude immediately after reveal and
+/// will consider short-lived reveals — making it exploitable via reorgs.
+contract VulnAuction is ISimpleAuction {
     struct Reveal {
         bytes32 commitHash;
         bool revealed;
@@ -14,8 +15,8 @@ contract SecureAuction is ISimpleAuction {
         uint256 revealBlock;
     }
 
-    uint256 private immutable _requiredConfirmations;
-    mapping(uint256 => mapping(address => Reveal)) public reveals; // auctionId => bidder => reveal
+    uint256 private immutable _requiredConfirmations; // exposed but ignored in finalize
+    mapping(uint256 => mapping(address => Reveal)) public reveals;
     mapping(uint256 => bool) private _finalized;
     mapping(uint256 => address) private _winner;
 
@@ -27,7 +28,6 @@ contract SecureAuction is ISimpleAuction {
         _requiredConfirmations = requiredConfirmations_;
     }
 
-    // ---- External interface ----
     function requiredConfirmations() external view returns (uint256) {
         return _requiredConfirmations;
     }
@@ -46,45 +46,41 @@ contract SecureAuction is ISimpleAuction {
 
         r.revealed = true;
         r.amount = amount;
-        r.revealBlock = block.number; // record inclusion block
+        r.revealBlock = block.number; // recorded, but not used correctly by finalize
         emit Revealed(auctionId, msg.sender, amount, r.revealBlock);
     }
 
-    /// @notice Finalize using explicit candidates. Only considers reveals that are
-    /// sufficiently deep (revealBlock + requiredConfirmations <= block.number).
+    /// @notice Vulnerable finalize: considers any revealed bids immediately, ignoring confirmations.
+    /// This makes it possible for an attacker to reveal, have that reveal included in a short-lived block,
+    /// and have the auction finalized before reorg can be resolved.
     function finalizeWithCandidates(uint256 auctionId, address[] calldata candidates) external {
         require(!_finalized[auctionId], "AlreadyFinalized");
 
         address best;
         uint256 bestAmount;
-        bool anyConfirmed = false;
+        bool anyReveal = false;
 
         for (uint256 i = 0; i < candidates.length; i++) {
             address bidder = candidates[i];
             Reveal storage r = reveals[auctionId][bidder];
             if (!r.revealed) continue;
 
-            // Secure check: require reveal to be deep enough (block confirmations)
-            if (block.number < r.revealBlock + _requiredConfirmations) {
-                // skip insecure/unsafe reveals that might be orphaned
-                continue;
-            }
-
-            anyConfirmed = true;
+            // VULNERABILITY: no confirmation check — immediately accepts revealed bids
+            anyReveal = true;
             if (r.amount > bestAmount) {
                 bestAmount = r.amount;
                 best = bidder;
             }
         }
 
-        require(anyConfirmed, "NotEnoughConfirmationsOrNoReveals");
+        require(anyReveal, "NoReveals");
 
         _finalized[auctionId] = true;
         _winner[auctionId] = best;
         emit Finalized(auctionId, best);
     }
 
-    // ---- View helpers for tests ----
+    // ---- View helpers ----
     function isFinalized(uint256 auctionId) external view returns (bool) {
         return _finalized[auctionId];
     }
@@ -96,9 +92,4 @@ contract SecureAuction is ISimpleAuction {
     function revealBlock(uint256 auctionId, address bidder) external view returns (uint256) {
         return reveals[auctionId][bidder].revealBlock;
     }
-
-    function debugHash(uint256 amount, bytes32 salt) public pure returns (bytes32) {
-    return keccak256(abi.encodePacked(amount, salt));
-    }
-
 }

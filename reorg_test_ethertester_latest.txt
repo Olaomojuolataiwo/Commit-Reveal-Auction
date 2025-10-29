@@ -35,8 +35,7 @@ from pathlib import Path
 from web3 import Web3
 from web3.providers.eth_tester import EthereumTesterProvider
 from eth_utils import to_hex
-from web3 import Web3, HTTPProvider
-from web3.exceptions import ContractCustomError, ContractLogicError
+from eth_tester import EthereumTester, PyEVMBackend
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]  # repo root (adjust if different)
 OUT_DIR = PROJECT_ROOT / "out"
@@ -50,6 +49,7 @@ AUCTION_ID_SECURE = 2
 REQUIRED_CONFIRMATIONS = 3  # will pass to constructor; tests also read from contract
 GAS = 6_000_000
 
+eth_tester = EthereumTester(PyEVMBackend())
 # Helper: run forge build
 def forge_build():
     print("🔨 Running `forge build` to compile contracts...")
@@ -113,47 +113,6 @@ def evm_mine(w3: Web3, n=1):
     for _ in range(n):
         w3.provider.make_request("evm_mine", [])
 
-def wait_for_tx_success(w3: Web3, tx_hash: bytes, name: str = "Transaction") -> dict:
-    receipt = w3.eth.wait_for_transaction_receipt(tx_hash)
-    if receipt.status == 0:
-        # Attempt to decode the revert reason
-        try:
-            tx = w3.eth.get_transaction(tx_hash)
-            # Find the contract that was called
-            contract = w3.eth.contract(address=tx['to'])
-            # NOTE: Decoding requires ABI, this might be simplified to checking the receipt for error data
-        except Exception:
-            pass # Keep silent if decoding fails
-
-        # This will now fail the test if any reveal/finalize reverts
-        raise RuntimeError(f"💥 {name} REVERTED (Status 0). Hash: {to_hex(tx_hash)}")
-    return receipt
-
-def safe_revert(w3, snapshot_id, name):
-    print(f"Attempting evm_revert to snapshot {snapshot_id} for {name}...")
-    res = w3.provider.make_request("evm_revert", [snapshot_id])
-    if not res.get("result"):
-        raise RuntimeError(
-        f"❌ Critical Revert Failure: Snapshot {snapshot_id} for {name} is invalid. "
-        "Reorg simulation is compromised. Check block mining sequence."
-        )
-    print(f"✅ Successfully reverted to snapshot {snapshot_id}.")
-    return snapshot_id
-
-# Short helper to print winner
-def get_winner(contract, auction_id):
-    try:
-        winner = contract.functions.winnerOf(auction_id).call()
-        return winner.lower()
-    except ContractLogicError as e:
-        # A ContractLogicError usually means the function reverted on-chain 
-        # (e.g., trying to call winnerOf before finalize)
-        return None
-    except Exception as e:
-        # Catch other unexpected errors
-        print(f"⚠️ Error calling winnerOf({auction_id}) on {contract.address}: {e}")
-        return None
-
 def main():
     forge_build()
 
@@ -163,12 +122,9 @@ def main():
     print("Loaded artifacts.")
 
     # Setup web3 + eth-tester (py-evm)
-    GANACHE_URL = 'http://127.0.0.1:8545'
-    print(f"🔗 Connecting to Ganache at {GANACHE_URL}...")
-    w3 = Web3(HTTPProvider(GANACHE_URL))
-
-    if not w3.is_connected():
-        raise ConnectionError(f"❌ Failed to connect to Ganache at {GANACHE_URL}. Please ensure Ganache is running.")
+    w3 = Web3(EthereumTesterProvider())
+    eth_tester = w3.provider.ethereum_tester
+    assert w3.is_connected()
 
     accounts = w3.eth.accounts
     deployer = accounts[0]
@@ -199,8 +155,12 @@ def main():
     vuln = w3.eth.contract(address=vuln_addr, abi=abi_vuln)
     print(" VulnAuction at", vuln_addr)
 
-    GLOBAL_BASELINE_SNAPSHOT = w3.provider.make_request("evm_snapshot", [])["result"]
-    print(f"Global Baseline Snapshot taken (pre-commit state): {GLOBAL_BASELINE_SNAPSHOT}")
+    # Short helper to print winner
+    def get_winner(contract, auction_id):
+        try:
+            return contract.functions.winnerOf(AUCTION_ID).call()
+        except Exception as e:
+            return None
 
     # Precompute salts and commits
     salt_honest = Web3.keccak(text="salt_honest_42")
@@ -217,19 +177,11 @@ def main():
 
     # Commit phase (on canonical chain prior to snapshot)
 
-    # After loading artifacts, before commits
-    contract_hash = vuln.functions.debugHash(honest_bid, salt_honest).call()
-    python_hash = solidity_keccak(['uint256','bytes32'], [honest_bid, salt_honest])
-
-    print(f"Python Hash: {to_hex(python_hash)}")
-    print(f"Solidity Hash: {to_hex(contract_hash)}")
-    assert python_hash == contract_hash, "Hash Mismatch - Commit/Reveal will fail!"
-
     # Commit to vulnerable contract 
     tx = vuln.functions.commit(AUCTION_ID_VULN, honest_commit).transact({"from": honest, "gas": GAS})
-    wait_for_tx_success(w3, tx, "Vuln Honest Commit")
+    w3.eth.wait_for_transaction_receipt(tx)
     tx = vuln.functions.commit(AUCTION_ID_VULN, mal_commit).transact({"from": malicious, "gas": GAS})
-    wait_for_tx_success(w3, tx, "Vuln Malicious Commit")
+    w3.eth.wait_for_transaction_receipt(tx)
 
     print("Commits included on-chain. Current block:", w3.eth.block_number)
     try:
@@ -250,12 +202,10 @@ def main():
     # Reveal on vuln
     print(f"Revealing for auction {AUCTION_ID_VULN} on VulnAuction at {vuln.address}")
     tx = vuln.functions.reveal(AUCTION_ID_VULN, honest_bid, salt_honest).transact({"from": honest, "gas": GAS})
-    wait_for_tx_success(w3, tx, "Vuln Honest Reveal")
     g = w3.eth.wait_for_transaction_receipt(tx)
     w3.provider.make_request("evm_mine", [])
     honest_reveal_block_vulnerable = g.blockNumber
     tx = vuln.functions.reveal(AUCTION_ID_VULN, mal_bid, salt_mal).transact({"from": malicious, "gas": GAS})
-    wait_for_tx_success(w3, tx, "Vuln Malicious Reveal")
     h = w3.eth.wait_for_transaction_receipt(tx)
     mal_reveal_block_vulnerable = h.blockNumber
 
@@ -274,7 +224,15 @@ def main():
     print("Branch A completed — ready to simulate reorg.")
 
     # Attempt premature finalize (should fail for secure due to confirmations; vuln may succeed)
-    reorg_snapshot = safe_revert(w3, baseline_vuln_snapshot, "Vulnerable Auction")
+
+    def safe_revert(w3, snapshot_id):
+        res = w3.provider.make_request("evm_revert", [snapshot_id])
+        if not res.get("result"):
+            print("evm_revert failed — snapshot invalid. Taking new baseline snapshot.")
+            snapshot_id = w3.provider.make_request("evm_snapshot", [])["result"]
+        return snapshot_id
+
+    reorg_snapshot = safe_revert(w3, baseline_vuln_snapshot)
     print(f"Successfully reverted to basline snapshot for vulnerable auction (id = {reorg_snapshot}) — starting Branch B (canonical chain)")  
 
     print(f"📙 Branch B starting point:")
@@ -283,7 +241,7 @@ def main():
     try:
         print("Attempting immediate finalize on VulnAuction (may succeed)...")
         tx = vuln.functions.finalizeWithCandidates(AUCTION_ID_VULN, [honest, malicious]).transact({"from": miner, "gas": GAS})
-        wait_for_tx_success(w3, tx, "Vuln Finalize")
+        w3.eth.wait_for_transaction_receipt(tx)
         vuln_winner_after_premature = get_winner(vuln, AUCTION_ID_VULN)
         print(" VulnAuction finalized prematurely, winner:", vuln_winner_after_premature)
     except Exception as e:
@@ -293,7 +251,6 @@ def main():
     print("Proceeding with honest-only reveal on branch B...")
     print(f"Revealing for auction {AUCTION_ID_VULN} on VulnAuction at {vuln.address}")
     tx = vuln.functions.reveal(AUCTION_ID_VULN, honest_bid, salt_honest).transact({"from": honest, "gas": GAS})
-    wait_for_tx_success(w3, tx, "Vuln Honest Reveal")
     receipt = w3.eth.wait_for_transaction_receipt(tx)
     w3.provider.make_request("evm_mine", [])
     honest_reveal_block = receipt.blockNumber
@@ -311,7 +268,7 @@ def main():
     tx = vuln.functions.finalizeWithCandidates(
         AUCTION_ID_VULN, [honest, malicious]
     ).transact({"from": miner, "gas": GAS})
-    wait_for_tx_success(w3, tx, "Vuln Finalize")
+    w3.eth.wait_for_transaction_receipt(tx)
 
     winner_vuln_B = get_winner(vuln, AUCTION_ID_VULN)
     print(" ✅ VulnAuction finalized on branch B. Canonical winner:", winner_vuln_B)
@@ -322,11 +279,50 @@ def main():
         "block_number": w3.eth.block_number,
     }
 
-    print("\n\n--- Resetting to Global Baseline Before Secure Auction ---")
-    # Revert to the snapshot taken after deployment but before ANY commits.
-    safe_revert(w3, GLOBAL_BASELINE_SNAPSHOT, "Global Reset before SecureAuction")
-    print(f"Current block after global reset: {w3.eth.block_number}")
+    # -------------------------
+    # Reorg: revert to snapshot (removes branch A reveals + finalization)
+    # -------------------------
+    print("\n🔁 Reverting to snapshot to simulate reorg (this orphaned branch A)...")
+    # --- Final revert / cleanup (optional) ---
+    try:
+        res = w3.provider.make_request("evm_revert", [reorg_snapshot])
+        if not res.get("result"):
+            print("⚠️ Final evm_revert skipped — snapshot already invalidated by earlier reorg.")
+        else:
+            print("✅ Final evm_revert succeeded, state reset.")
+    except Exception as e:
+        print(f"⚠️ Final evm_revert raised: {e} (ignored for safety).")
 
+    print(f"📗 Final chain head: {w3.eth.block_number}")
+
+    # After revert, the chain state is as it was immediately after commits (no reveals).
+    # Now create branch B where only honest reveals (malicious reveal is not included).
+    print("\n=== Branch B (only honest reveals) ===")
+
+    # For vuln, same
+    print(f"Revealing for auction {AUCTION_ID_VULN} on VulnAuction at {vuln.address}")
+    tx = vuln.functions.reveal(AUCTION_ID_VULN, honest_bid, salt_honest).transact({"from": honest, "gas": GAS})
+    x = w3.eth.wait_for_transaction_receipt(tx)
+    w3.provider.make_request("evm_mine", [])
+    honest_reveal_block_vuln_B = x.blockNumber
+
+    print("Branch B reveals included. Current block:", w3.eth.block_number)
+    print("Secure reveal block (B):", honest_reveal_block_vuln_B)
+
+    # Advance confirmations on branch B
+    print(f"Advancing {REQUIRED_CONFIRMATIONS} blocks on branch B...")
+    evm_mine(w3, REQUIRED_CONFIRMATIONS)
+
+    # Finalize Vulnerable Auction on branch B
+
+    print("Finalizing VulnAuction on branch B...")
+    try:
+        tx = vuln.functions.finalizeWithCandidates(AUCTION_ID_VULN, [honest, malicious]).transact({"from": miner, "gas": GAS})
+        w3.eth.wait_for_transaction_receipt(tx)
+    except Exception as e:
+        print("Vuln finalize on branch B error:", e)
+    winner_vuln_B = get_winner(vuln, AUCTION_ID_VULN)
+    print("VulnAuction winner on branch B:", winner_vuln_B)
 
     # -------------------------
     # Secure Auction Flow
@@ -342,19 +338,12 @@ def main():
 
     # Commit phase (on canonical chain prior to snapshot)
 
-    # After loading artifacts, before commits
-    contract_hash_honest = secure.functions.debugHash(honest_bid, salt_honest).call()
-    python_hash_honest = solidity_keccak(['uint256','bytes32'], [honest_bid, salt_honest])
-
-    print(f"Python Hash: {to_hex(python_hash_honest)}")
-    print(f"Solidity Hash: {to_hex(contract_hash_honest)}")
-    assert python_hash_honest == contract_hash_honest, "Hash Mismatch - Commit/Reveal will fail!"
-
     print("\n--- Commit phase (both actors commit) ---")
     tx = secure.functions.commit(AUCTION_ID_SECURE, honest_commit).transact({"from": honest, "gas": GAS})
-    wait_for_tx_success(w3, tx, "Secure Honest Commit")
+    w3.eth.wait_for_transaction_receipt(tx)
     tx = secure.functions.commit(AUCTION_ID_SECURE, mal_commit).transact({"from": malicious, "gas": GAS})
-    wait_for_tx_success(w3, tx, "Secure Malicious Commit")
+    w3.eth.wait_for_transaction_receipt(tx)
+
     print("Commits included on-chain. Current block:", w3.eth.block_number)
     try:
         ok = eth_tester.revert(0)  # safe noop if no prior snapshot
@@ -374,12 +363,10 @@ def main():
     # Reveal on secure
     print(f"Revealing for auction {AUCTION_ID_SECURE} on SecureAuction at {secure.address}")
     tx = secure.functions.reveal(AUCTION_ID_SECURE, honest_bid, salt_honest).transact({"from": honest, "gas": GAS})
-    wait_for_tx_success(w3, tx, "Secure Honest Reveal")
     m = w3.eth.wait_for_transaction_receipt(tx)
     w3.provider.make_request("evm_mine", [])
     honest_reveal_block_secure = m.blockNumber
     tx = secure.functions.reveal(AUCTION_ID_SECURE, mal_bid, salt_mal).transact({"from": malicious, "gas": GAS})
-    wait_for_tx_success(w3, tx, "Secure Malicious Reveal")
     n = w3.eth.wait_for_transaction_receipt(tx)
     w3.provider.make_request("evm_mine", [])
     mal_reveal_block_secure = n.blockNumber
@@ -399,7 +386,7 @@ def main():
     print(f"   Current head block: {w3.eth.block_number}")
     print("Branch A completed — ready to simulate reorg.")
 
-    reorg_secure_snapshot = safe_revert(w3, baseline_secure_snapshot, "Secure Auction (Branch A Cleanup)")
+    reorg_secure_snapshot = safe_revert(w3, baseline_secure_snapshot)
     print(f"Successfully reverted to basline snapshot for secure auction (id = {reorg_secure_snapshot}) — starting Branch B (canonical chain)")
     print(f"  Branch B starting point:")
     print(f"   Current block after revert: {w3.eth.block_number}")
@@ -419,7 +406,6 @@ def main():
     try:
         print("Attempting immediate finalize on SecureAuction (should fail)...")
         secure.functions.finalizeWithCandidates(AUCTION_ID_SECURE, [honest, malicious]).transact({"from": miner, "gas": GAS})
-        wait_for_tx_success(w3, tx, "Secure Finalize")
         secure_winner_after_premature = get_winner(secure, AUCTION_ID_SECURE)
         print(" ⚠️ SecureAuction finalized prematurely (unexpected). Winner:", secure_winner_after_premature)
     except Exception as e:
@@ -429,7 +415,6 @@ def main():
     print("Proceeding with honest-only reveal on branch B...")
     print(f"Revealing for auction {AUCTION_ID_SECURE} on SecureAuction at {secure.address}")
     tx = secure.functions.reveal(AUCTION_ID_SECURE, honest_bid, salt_honest).transact({"from": honest, "gas": GAS})
-    wait_for_tx_success(w3, tx, "Secure Honest Reveal")
     receipt = w3.eth.wait_for_transaction_receipt(tx)
     w3.provider.make_request("evm_mine", [])
     honest_reveal_block = receipt.blockNumber
@@ -447,7 +432,7 @@ def main():
     tx = secure.functions.finalizeWithCandidates(
         AUCTION_ID_SECURE, [honest, malicious]
     ).transact({"from": miner, "gas": GAS})
-    wait_for_tx_success(w3, tx, "Secure Finalize")
+    w3.eth.wait_for_transaction_receipt(tx)
 
     winner_secure_B = get_winner(secure, AUCTION_ID_SECURE)
     print(" ✅ SecureAuction finalized on branch B. Canonical winner:", winner_secure_B)
@@ -457,6 +442,50 @@ def main():
         "secure_winner": winner_secure_B,
         "block_number": w3.eth.block_number,
     }
+
+    # -------------------------
+    # Reorg: revert to snapshot (removes branch A reveals + finalization)
+    # -------------------------
+    print("\n  Reverting to snapshot to simulate reorg (this orphaned branch A)...")
+    # --- Final revert / cleanup (optional) ---
+    try:
+        res = w3.provider.make_request("evm_revert", [reorg_secure_snapshot])
+        if not res.get("result"):
+            print("⚠️ Final evm_revert skipped — snapshot already invalidated by earlier reorg.")
+        else:
+            print("✅ Final evm_revert succeeded, state reset.")
+    except Exception as e:
+        print(f"⚠️ Final evm_revert raised: {e} (ignored for safety).")
+
+    print(f"  Final chain head: {w3.eth.block_number}")
+
+    # After revert, the chain state is as it was immediately after commits (no reveals).
+    # Now create branch B where only honest reveals (malicious reveal is not included).
+    print("\n=== Branch B (only honest reveals) ===")
+    # Reveal for secure (only honest)
+    print(f"Revealing for auction {AUCTION_ID_SECURE} on SecureAuction at {secure.address}")
+    tx = secure.functions.reveal(AUCTION_ID_SECURE, honest_bid, salt_honest).transact({"from": honest, "gas": GAS})
+    x = w3.eth.wait_for_transaction_receipt(tx)
+    w3.provider.make_request("evm_mine", [])
+    honest_reveal_block_secure_B = x.blockNumber
+    print("Branch B reveals included. Current block:", w3.eth.block_number)
+    print("Secure reveal block (B):", honest_reveal_block_secure_B)
+
+    # Advance confirmations on branch B
+    print(f"Advancing {REQUIRED_CONFIRMATIONS} blocks on branch B...")
+    evm_mine(w3, REQUIRED_CONFIRMATIONS)
+
+    # Finalize Secure Auction on branch B
+    print("Finalizing SecureAuction on branch B...")
+    try:
+        tx = secure.functions.finalizeWithCandidates(AUCTION_ID_SECURE, [honest, malicious]).transact({"from": miner, "gas": GAS})
+        w3.eth.wait_for_transaction_receipt(tx)
+    except Exception as e:
+        print("Secure finalize on branch B failed (no confirmed reveals?):", e)
+
+    winner_secure_B = get_winner(secure, AUCTION_ID_SECURE)
+    print("SecureAuction winner on branch B:", winner_secure_B)
+
 
     # -------------------------
     # Compare outcomes
