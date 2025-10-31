@@ -4,6 +4,13 @@ A comprehensive series of security-driven tests exploring **commit–reveal auct
 
 This repository contains all five stages of the research project, including Solidity contract deployments, exploit simulations, and cross-language test orchestration (Foundry + Python). Each stage builds on the previous, progressively revealing failure modes and defensive architecture.
 
+**Project Summary**
+
+🎯 Problem solved: “Front-running, non-reveal griefing and oracle manipulation threaten sealed-bid auctions.”
+
+🛠 Solution: “Built a full on-chain & local test suite demonstrating vulnerabilities and hardening patterns.”
+
+📈 Skills demonstrated: “Solidity, Foundry, Python automation, EVM orchestration, security testing, MEV bundles”.
 ---
 
 ## 🧩 Overview
