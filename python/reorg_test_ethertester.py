@@ -250,21 +250,11 @@ def main():
     # Reveal on vuln
     print(f"Revealing for auction {AUCTION_ID_VULN} on VulnAuction at {vuln.address}")
     tx = vuln.functions.reveal(AUCTION_ID_VULN, honest_bid, salt_honest).transact({"from": honest, "gas": GAS})
-    wait_for_tx_success(w3, tx, "Vuln Honest Reveal")
-    g = w3.eth.wait_for_transaction_receipt(tx)
-    w3.provider.make_request("evm_mine", [])
+    g = wait_for_tx_success(w3, tx, "Vuln Honest Reveal")
     honest_reveal_block_vulnerable = g.blockNumber
     tx = vuln.functions.reveal(AUCTION_ID_VULN, mal_bid, salt_mal).transact({"from": malicious, "gas": GAS})
-    wait_for_tx_success(w3, tx, "Vuln Malicious Reveal")
-    h = w3.eth.wait_for_transaction_receipt(tx)
+    h = wait_for_tx_success(w3, tx, "Vuln Malicious Reveal")
     mal_reveal_block_vulnerable = h.blockNumber
-
-    # Save Branch A state (before reorg)
-    winner_vuln_A = get_winner(vuln, AUCTION_ID_VULN)
-    vuln_stateA = {
-        "vuln_winner": winner_vuln_A,
-        "block_number": w3.eth.block_number,
-    }
 
     print("Reveals included on branch A. Blocks:", w3.eth.block_number)
     print(f"📘 Branch A summary:")
@@ -274,20 +264,28 @@ def main():
     print("Branch A completed — ready to simulate reorg.")
 
     # Attempt premature finalize (should fail for secure due to confirmations; vuln may succeed)
-    reorg_snapshot = safe_revert(w3, baseline_vuln_snapshot, "Vulnerable Auction")
-    print(f"Successfully reverted to basline snapshot for vulnerable auction (id = {reorg_snapshot}) — starting Branch B (canonical chain)")  
-
-    print(f"📙 Branch B starting point:")
-    print(f"   Current block after revert: {w3.eth.block_number}")
-
     try:
         print("Attempting immediate finalize on VulnAuction (may succeed)...")
         tx = vuln.functions.finalizeWithCandidates(AUCTION_ID_VULN, [honest, malicious]).transact({"from": miner, "gas": GAS})
         wait_for_tx_success(w3, tx, "Vuln Finalize")
         vuln_winner_after_premature = get_winner(vuln, AUCTION_ID_VULN)
-        print(" VulnAuction finalized prematurely, winner:", vuln_winner_after_premature)
+        print(" ✅ VulnAuction finalized immediately on Branch A, winner:", vuln_winner_after_premature)
     except Exception as e:
-        print(" ✅ VulnAuction rejected premature finalize (expected):", str(e).splitlines()[0])
+        print("❌ VulnAuction finalize reverted unexpectedly on Branch A:", str(e).splitlines()[0])
+
+    # Save Branch A state (before reorg)
+    winner_vuln_A = get_winner(vuln, AUCTION_ID_VULN)
+    vuln_stateA = {
+        "vuln_winner": winner_vuln_A,
+        "block_number": w3.eth.block_number,
+    }
+
+    reorg_snapshot = safe_revert(w3, baseline_vuln_snapshot, "Vulnerable Auction")
+    print(f"Successfully reverted to basline snapshot for vulnerable auction (id = {reorg_snapshot}) — starting Branch B (canonical chain)")
+
+    print(f"  Branch B starting point:")
+    print(f"   Current block after revert: {w3.eth.block_number}")
+
 
    # --- Honest-only reveal sequence ---
     print("Proceeding with honest-only reveal on branch B...")
@@ -356,12 +354,6 @@ def main():
     tx = secure.functions.commit(AUCTION_ID_SECURE, mal_commit).transact({"from": malicious, "gas": GAS})
     wait_for_tx_success(w3, tx, "Secure Malicious Commit")
     print("Commits included on-chain. Current block:", w3.eth.block_number)
-    try:
-        ok = eth_tester.revert(0)  # safe noop if no prior snapshot
-        if not ok:
-            print("No valid snapshot to revert — continuing.")
-    except Exception:
-        pass
 
     # Snapshot the chain now — this will be the fork point for the reorg.
     baseline_secure_snapshot = w3.provider.make_request("evm_snapshot", [])["result"]
@@ -374,23 +366,14 @@ def main():
     # Reveal on secure
     print(f"Revealing for auction {AUCTION_ID_SECURE} on SecureAuction at {secure.address}")
     tx = secure.functions.reveal(AUCTION_ID_SECURE, honest_bid, salt_honest).transact({"from": honest, "gas": GAS})
-    wait_for_tx_success(w3, tx, "Secure Honest Reveal")
-    m = w3.eth.wait_for_transaction_receipt(tx)
+    honest_receipt = wait_for_tx_success(w3, tx, "Secure Honest Reveal")
+    honest_reveal_block_secure = honest_receipt.blockNumber
     w3.provider.make_request("evm_mine", [])
-    honest_reveal_block_secure = m.blockNumber
+
     tx = secure.functions.reveal(AUCTION_ID_SECURE, mal_bid, salt_mal).transact({"from": malicious, "gas": GAS})
-    wait_for_tx_success(w3, tx, "Secure Malicious Reveal")
-    n = w3.eth.wait_for_transaction_receipt(tx)
+    malicious_receipt = wait_for_tx_success(w3, tx, "Secure Malicious Reveal")
+    mal_reveal_block_secure = malicious_receipt.blockNumber
     w3.provider.make_request("evm_mine", [])
-    mal_reveal_block_secure = n.blockNumber
-
-    # Save Branch A state (before reorg)
-    winner_secure_A = get_winner(secure, AUCTION_ID_SECURE)
-    secure_stateA = {
-        "secure_winner": winner_secure_A,
-        "block_number": w3.eth.block_number,
-    }
-
 
     print("Reveals included on branch A. Blocks:", w3.eth.block_number)
     print(f"  Branch A summary:")
@@ -399,39 +382,42 @@ def main():
     print(f"   Current head block: {w3.eth.block_number}")
     print("Branch A completed — ready to simulate reorg.")
 
-    reorg_secure_snapshot = safe_revert(w3, baseline_secure_snapshot, "Secure Auction (Branch A Cleanup)")
-    print(f"Successfully reverted to basline snapshot for secure auction (id = {reorg_secure_snapshot}) — starting Branch B (canonical chain)")
-    print(f"  Branch B starting point:")
-    print(f"   Current block after revert: {w3.eth.block_number}")
-
-    for _ in range(REQUIRED_CONFIRMATIONS):
-        w3.provider.make_request("evm_mine", [])
 
     print(f" Confirming reveal blocks before finalize:")
     for addr in [honest, malicious]:
         rb = secure.functions.revealBlock(AUCTION_ID_SECURE, addr).call()
         print(f"   {addr} revealBlock={rb}, current block={w3.eth.block_number}")
 
-    # --- Branch B (after reorg): simulate alternate (honest-only) reveal ---
-    print("\n=== Branch B (honest-only path, SecureAuction) ===")
-
     # Try premature finalize (should revert due to confirmations)
+    tx_finalize = secure.functions.finalizeWithCandidates(AUCTION_ID_SECURE, [honest, malicious]).transact({"from": miner, "gas": GAS})
     try:
-        print("Attempting immediate finalize on SecureAuction (should fail)...")
-        secure.functions.finalizeWithCandidates(AUCTION_ID_SECURE, [honest, malicious]).transact({"from": miner, "gas": GAS})
-        wait_for_tx_success(w3, tx, "Secure Finalize")
+        wait_for_tx_success(w3, tx_finalize, "Secure Finalize")
         secure_winner_after_premature = get_winner(secure, AUCTION_ID_SECURE)
         print(" ⚠️ SecureAuction finalized prematurely (unexpected). Winner:", secure_winner_after_premature)
-    except Exception as e:
+    except RuntimeError as e:
         print(" ✅ SecureAuction rejected premature finalize (expected):", str(e).splitlines()[0])
+    except TimeoutError as e:
+        print(" ✅ SecureAuction rejected premature finalize (expected - Timeout):", str(e).splitlines()[0])
 
+    # Save Branch A state (before reorg)
+    winner_secure_A = get_winner(secure, AUCTION_ID_SECURE)
+    secure_stateA = {
+        "secure_winner": winner_secure_A,
+        "block_number": w3.eth.block_number,
+    }
+
+    # --- Branch B (after reorg): simulate alternate (honest-only) reveal ---
+    print("\n=== Branch B (honest-only path, SecureAuction) ===")
     # --- Honest-only reveal sequence ---
+    reorg_secure_snapshot = safe_revert(w3, baseline_secure_snapshot, "Secure Auction (Branch A Cleanup)")
+    print(f"Successfully reverted to basline snapshot for secure auction (id = {reorg_secure_snapshot}) — starting Branch B (canonical chain)")
+    print(f"  Branch B starting point:")
+    print(f"   Current block after revert: {w3.eth.block_number}")
+
     print("Proceeding with honest-only reveal on branch B...")
     print(f"Revealing for auction {AUCTION_ID_SECURE} on SecureAuction at {secure.address}")
     tx = secure.functions.reveal(AUCTION_ID_SECURE, honest_bid, salt_honest).transact({"from": honest, "gas": GAS})
-    wait_for_tx_success(w3, tx, "Secure Honest Reveal")
-    receipt = w3.eth.wait_for_transaction_receipt(tx)
-    w3.provider.make_request("evm_mine", [])
+    receipt = wait_for_tx_success(w3, tx, "Secure Honest Reveal")
     honest_reveal_block = receipt.blockNumber
     print(f" Honest reveal included at block {honest_reveal_block}")
 
@@ -508,40 +494,22 @@ def main():
     print(f" - VulnAuction winner:  {vuln_stateB.get('vuln_winner')}")
     print(f" - SecureAuction winner: {secure_stateB.get('secure_winner')}")
 
-    # ---- Compute divergence flags ----
-    diverged_secure = secure_winner_A != secure_winner_B
-    diverged_vuln   = vuln_winner_A != vuln_winner_B
+    zero_addr = "0x0000000000000000000000000000000000000000"
 
-    print("\n--- Interpretation ---")
+    # 1) Vulnerable contract must be able to finalize on A immediately (malicious wins on A)
+    assert vuln_stateA["vuln_winner"] is not None, "VulnAuction did not finalize on Branch A (expected vulnerability)."
+    assert vuln_stateA["vuln_winner"].lower() == malicious.lower(), "VulnAuction Branch A winner should be malicious."
 
-    # === SecureAuction analysis ===
-    if diverged_secure:
-        print(" ✅ SecureAuction changed winner after reorg (OK if recomputed using canonical chain).")
-    else:
-        print(" ⚠️ SecureAuction winner unchanged after reorg (could indicate finalize persisted orphaned state).")
+    # 2) Secure contract must NOT finalize on A (it requires confirmations)
+    assert secure_stateA["secure_winner"] in (None, zero_addr), "SecureAuction unexpectedly finalized on Branch A."
 
-    # === VulnAuction analysis ===
-    if diverged_vuln:
-        print(" ⚠️ VulnAuction changed winner after reorg (possible recomputation or instability).")
-    else:
-        print(" ⚠️ VulnAuction winner unchanged after reorg — could indicate persistence of orphaned state.")
+    # 3) Both contracts must finalize to honest on canonical branch B
+    assert vuln_stateB["vuln_winner"].lower() == honest.lower(), "VulnAuction Branch B winner must be honest."
+    assert secure_stateB["secure_winner"].lower() == honest.lower(), "SecureAuction Branch B winner must be honest."
 
-    # ---- Canonical expectation checks ----
-    honest_lower = honest.lower()
-    malicious_lower = malicious.lower()
-
-    # Safe canonical comparison (avoid NoneType.lower() errors)
-    if secure_winner_B == honest_lower:
-        print(" ✅ SecureAuction final winner matches canonical branch B (honest).")
-    else:
-        print(" ⚠️ SecureAuction final winner does NOT match canonical branch B (unexpected).")
-
-    if vuln_winner_A == malicious_lower and vuln_winner_B == malicious_lower:
-        print(" ❌ VulnAuction retained malicious winner after reorg — THIS IS A PROBLEM.")
-    elif vuln_winner_B == honest_lower:
-        print(" ✅ VulnAuction correctly recomputed winner to honest on canonical branch B.")
-    else:
-        print(" ℹ️ VulnAuction behavior mixed or inconclusive — check branch states manually.")
+    # 4) Divergence observed: A winners differ from B winners (malicious -> honest)
+    assert vuln_stateA["vuln_winner"].lower() != vuln_stateB["vuln_winner"].lower(), "VulnAuction should diverge (A != B)."
+    assert (secure_stateA["secure_winner"] in (None, zero_addr)) and (secure_stateB["secure_winner"].lower() == honest.lower()), "SecureAuction should not finalize on A but finalize to honest on B."
 
     # ---- Optional: Debug prints for clarity ----
     print("\n🔎 Debug — Secure winners: A =", secure_winner_A, ", B =", secure_winner_B)

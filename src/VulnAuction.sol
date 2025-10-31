@@ -94,7 +94,6 @@ contract VulnAuction is ISimpleAuction {
     }
 
     function debugHash(uint256 amount, bytes32 salt) public pure returns (bytes32) {
-    return keccak256(abi.encodePacked(amount, salt));
+        return keccak256(abi.encodePacked(amount, salt));
     }
-
 }

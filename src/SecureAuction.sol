@@ -2,6 +2,7 @@
 pragma solidity ^0.8.20;
 
 import "./utils/ISimpleAuction.sol";
+import "forge-std/console.sol";
 
 /// @notice SecureAuction enforces requiredConfirmations (measured in blocks) before a revealed
 /// bid can be considered during finalization. This makes finalization resistant to short reorgs
@@ -57,18 +58,24 @@ contract SecureAuction is ISimpleAuction {
 
         address best;
         uint256 bestAmount;
+        bool anyRevealed = false;
         bool anyConfirmed = false;
 
+        // --- 🔒 Strict confirmation check: all reveals must be confirmed ---
         for (uint256 i = 0; i < candidates.length; i++) {
             address bidder = candidates[i];
             Reveal storage r = reveals[auctionId][bidder];
             if (!r.revealed) continue;
 
-            // Secure check: require reveal to be deep enough (block confirmations)
+            anyRevealed = true;
+
+            // If any revealed bid lacks required confirmations → revert immediately
             if (block.number < r.revealBlock + _requiredConfirmations) {
-                // skip insecure/unsafe reveals that might be orphaned
-                continue;
+                console.log("Rejecting finalize: reveal at %s not yet confirmed", r.revealBlock);
+                revert("NotEnoughConfirmationsForAllReveals");
             }
+
+            // --- Determine highest confirmed bid ---
 
             anyConfirmed = true;
             if (r.amount > bestAmount) {
@@ -76,8 +83,7 @@ contract SecureAuction is ISimpleAuction {
                 best = bidder;
             }
         }
-
-        require(anyConfirmed, "NotEnoughConfirmationsOrNoReveals");
+        require(anyRevealed && anyConfirmed, "NotEnoughConfirmationsOrNoReveals");
 
         _finalized[auctionId] = true;
         _winner[auctionId] = best;
@@ -98,7 +104,6 @@ contract SecureAuction is ISimpleAuction {
     }
 
     function debugHash(uint256 amount, bytes32 salt) public pure returns (bytes32) {
-    return keccak256(abi.encodePacked(amount, salt));
+        return keccak256(abi.encodePacked(amount, salt));
     }
-
 }
