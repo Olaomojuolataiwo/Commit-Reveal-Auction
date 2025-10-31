@@ -1,6 +1,6 @@
 # Secure Auction Research Series
 
-A comprehensive series of security-driven tests exploring **commit–reveal auction mechanisms**, common exploit vectors, and defensive design improvements.
+A comprehensive series of security-driven tests exploring **commit–reveal auction mechanisms**, common exploit vectors, and defensive design improvements. A Research series exploring commit–reveal sealed-bid auctions, adversarial exploitation and hardened design on Ethereum.
 
 This repository contains all five stages of the research project, including Solidity contract deployments, exploit simulations, and cross-language test orchestration (Foundry + Python). Each stage builds on the previous, progressively revealing failure modes and defensive architecture.
 
